@@ -1,0 +1,47 @@
+{
+  "stacks": [
+    {
+      "stack": "go",
+      "dir": ".",
+      "runner": null
+    }
+  ],
+  "commands": [
+    {
+      "step": "typecheck",
+      "run": "go vet ./...",
+      "cwd": ".",
+      "from": "PATH:go"
+    },
+    {
+      "step": "lint",
+      "run": "golangci-lint run",
+      "cwd": ".",
+      "from": "PATH:golangci-lint"
+    },
+    {
+      "step": "test",
+      "run": "go test ./...",
+      "cwd": ".",
+      "from": "PATH:go"
+    }
+  ],
+  "skipped": [],
+  "related": [
+    {
+      "dir": ".",
+      "mode": "go"
+    }
+  ],
+  "formatter": {
+    "step": "format",
+    "run": "gofmt -w",
+    "cwd": ".",
+    "from": "PATH:gofmt"
+  },
+  "docsDir": "docs",
+  "generated": [],
+  "instructions": [],
+  "ambiguities": [],
+  "git": true
+}

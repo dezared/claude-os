@@ -1,0 +1,32 @@
+{
+  "stacks": [
+    {
+      "stack": "python",
+      "dir": ".",
+      "runner": null
+    }
+  ],
+  "commands": [
+    {
+      "step": "test",
+      "run": "pytest",
+      "cwd": ".",
+      "from": "requirements.txt#pytest"
+    }
+  ],
+  "skipped": [],
+  "related": [
+    {
+      "dir": ".",
+      "mode": "pytest-name"
+    }
+  ],
+  "formatter": null,
+  "docsDir": "docs",
+  "generated": [
+    "__pycache__/"
+  ],
+  "instructions": [],
+  "ambiguities": [],
+  "git": true
+}

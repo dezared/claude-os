@@ -1,0 +1,24 @@
+{
+  "id": "project-kit",
+  "name": "Project kit",
+  "description": "A development kit for your own projects: a short CLAUDE.md built from the project's real commands, workflow rules, one gate, Node hooks, three agents, five skills and the docs ledgers. Enabling it installs nothing into Claude: it adds the \"Project kit…\" action to projects, and nothing is written into a project before you approve its plan.",
+  "descriptionRu": "Набор для разработки в ваших проектах: короткий CLAUDE.md из настоящих команд проекта, правила работы, одна проверка, хуки на Node, три агента, пять скиллов и журналы в документации. Включение ничего не записывает в Claude: у проектов появляется действие «Набор проекта…», а в проект ничего не пишется, пока вы не одобрите план.",
+  "features": [
+    "Commands taken from the project's own files, never invented",
+    "One gate: typecheck, lint, file size, new suppressions, touchpoints, unit tests",
+    "Later kit versions merge with your edits instead of overwriting them",
+    "Skills live in the project, none visible to the model until you call them"
+  ],
+  "featuresRu": [
+    "Команды берутся из файлов самого проекта, ничего не выдумывается",
+    "Одна проверка: типы, линтер, размер файлов, новые подавления, точки касания, unit-тесты",
+    "Новые версии набора сливаются с вашими правками, а не затирают их",
+    "Скиллы живут в проекте и не видны модели, пока вы их не вызовете"
+  ],
+  "icon": "layout-template",
+  "version": "1.0.0",
+  "author": "Claude OS",
+  "contains": {
+    "kit": "kit"
+  }
+}

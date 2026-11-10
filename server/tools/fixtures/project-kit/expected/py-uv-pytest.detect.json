@@ -1,0 +1,43 @@
+{
+  "stacks": [
+    {
+      "stack": "python",
+      "dir": ".",
+      "runner": "uv"
+    }
+  ],
+  "commands": [
+    {
+      "step": "lint",
+      "run": "uv run ruff check",
+      "cwd": ".",
+      "from": "pyproject.toml#tool.ruff"
+    },
+    {
+      "step": "test",
+      "run": "uv run pytest",
+      "cwd": ".",
+      "from": "pyproject.toml#tool.pytest"
+    }
+  ],
+  "skipped": [],
+  "related": [
+    {
+      "dir": ".",
+      "mode": "pytest-name"
+    }
+  ],
+  "formatter": {
+    "step": "format",
+    "run": "uv run ruff format",
+    "cwd": ".",
+    "from": "pyproject.toml#tool.ruff"
+  },
+  "docsDir": "docs",
+  "generated": [
+    "__pycache__/"
+  ],
+  "instructions": [],
+  "ambiguities": [],
+  "git": true
+}

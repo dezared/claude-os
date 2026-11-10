@@ -1,0 +1,8 @@
+---
+description: Rules for the HTTP API handlers
+globs: src/api/**/*.ts
+alwaysApply: false
+---
+
+- Validate every request body at the handler boundary.
+- Return errors as `{ error: string }` with a 4xx status.

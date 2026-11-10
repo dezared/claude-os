@@ -1,0 +1,1414 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-bg: #09090b;
+  --color-card: #101014;
+  --color-raised: rgba(255, 255, 255, 0.075);
+  --color-line: rgba(255, 255, 255, 0.11);
+  --color-line2: rgba(255, 255, 255, 0.065);
+  --color-fg: #fafafa;
+  --color-soft: #e4e4e7;
+  --color-muted: #b0b0b9;
+  --color-dim: #8b8b95;
+  --color-accent: #d97757;
+  --color-accent-hover: #e08a6d;
+  --color-accent-deep: #b85c38;
+  --color-accent-bg: rgba(217, 119, 87, 0.12);
+  --color-on-accent: #1a0d07;
+  --color-ok: #5fb98a;
+  --color-warn: #e0b34f;
+  --color-bad: #e5695f;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+  --breakpoint-app: 1280px;
+  --ease-ui: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@layer base {
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* On html, not body: the universe sits at a negative z-index and a body background would cover it. */
+html {
+  background: #030305 !important;
+}
+
+body {
+  margin: 0;
+  color: var(--color-fg);
+  font: 13px/1.45 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Native app feel: text is selectable only where it is content. */
+.selectable,
+input,
+textarea {
+  user-select: text;
+}
+
+button {
+  color: inherit;
+  font: inherit;
+}
+
+/* Whatever can be clicked says so. */
+button:not(:disabled),
+a[href],
+label:has(input[type='file']),
+[role='button'],
+[role='tab'],
+[role='menuitem']:not([aria-disabled='true']),
+[role='option'] {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(217, 119, 87, 0.32);
+}
+
+/* Thin dark scrollbars, shown like native ones. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+}
+
+/* A modal sets pointer-events and this variable on body. Both inherit: a long chat paid 250 ms of style for every open and close.
+   The app takes neither from body; the modal's overlay is what stops the pointer. */
+@property --removed-body-scroll-bar-size {
+  syntax: '*';
+  inherits: false;
+}
+#root {
+  pointer-events: auto;
+}
+
+/* ---------- The universe and what floats over it ---------- */
+.universe-stage {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  transition: opacity 240ms ease;
+}
+/* A layer of its own for the scroll. Without it Chromium keeps a non-opaque scroller in the page's layer to save LCD text, and every
+   scroll step repaints the whole chat on the main thread. Numbers: e2e/chat-perf.ts, docs/batch-2026-11/polish.md. */
+.transcript-scroller {
+  will-change: scroll-position;
+}
+/* Off Home: a dim still frame. The canvas is not redrawn, so this costs nothing per frame. */
+.universe-stage.is-still {
+  opacity: 0.62;
+}
+.universe-stage.is-still,
+.universe-stage.is-still canvas {
+  pointer-events: none;
+}
+.universe-stage,
+.universe-stage canvas {
+  pointer-events: auto;
+}
+.universe-stage canvas {
+  display: block;
+}
+.u-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+.u-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.62);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(240, 242, 248, 0.92);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 180ms ease, background-color 150ms ease, color 150ms ease, visibility 0s linear 180ms;
+  cursor: pointer;
+}
+.u-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The same mark as ProjectIcon in the project list: an icon, else a monogram on a tint of the project's colour. */
+.u-label i {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--dot) 20%, transparent);
+  color: var(--dot);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.55;
+}
+.u-label.live i {
+  opacity: 1;
+}
+.u-label i.u-icon {
+  background: transparent;
+}
+.u-label i.u-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* Alive: a small still dot of the project's colour after the name. The motion on the map is the satellites' already, and a pulse here would cost a style pass every frame. */
+.u-label.live::after {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+.u-label.nested::before {
+  content: '↳';
+  opacity: 0.7;
+}
+/* A layer only for a name that is on: with a hundred projects most of them wait unseen. */
+.u-label.on {
+  will-change: transform;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 180ms ease, background-color 150ms ease, color 150ms ease;
+}
+.u-label.on:hover,
+.u-label.hot {
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+}
+.u-label.on.dim {
+  opacity: 0.3;
+}
+/* The core is no badge: its mark and name stand on the sky, under the nucleus they name. */
+.u-label.core {
+  max-width: none;
+  gap: 7px;
+  padding: 3px 6px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  color: #fbf4e8;
+  text-shadow: 0 0 10px #000, 0 0 3px #000, 0 1px 2px #000;
+}
+.u-label.core svg {
+  flex: none;
+  color: var(--color-accent);
+  filter: drop-shadow(0 0 3px #000);
+}
+.u-label.core.on:hover,
+.u-label.core.hot {
+  background: transparent;
+  color: #fff;
+}
+.u-label.core.on:hover svg,
+.u-label.core.hot svg {
+  color: var(--color-accent-hover);
+}
+.u-label-note {
+  max-width: 200px;
+  background: rgba(0, 0, 0, 0.42);
+  font-size: 11px;
+  font-weight: 400;
+  color: rgba(226, 232, 244, 0.9);
+}
+.u-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  will-change: transform;
+  transform-origin: 0 100%;
+  transition: opacity 120ms ease, visibility 0s;
+  max-width: 320px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: rgba(12, 12, 18, 0.95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 14px 34px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.u-gone {
+  opacity: 0 !important;
+  visibility: hidden;
+  transition: opacity 120ms ease, visibility 0s linear 120ms;
+}
+/* The thread from a card to its object: one pixel wide before scaleX, so moving it is a compositor job. */
+.u-leader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  width: 1px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.42);
+  transform-origin: 0 50%;
+  pointer-events: none;
+  opacity: 0;
+}
+.u-leader.on {
+  opacity: 1;
+}
+.u-on-sky {
+  text-shadow: 0 0 8px #000, 0 1px 2px #000;
+}
+
+/* Glass: smoked, slightly darkening, with more colour in what shows through. */
+.glass,
+.glass-strong,
+.glass-reading,
+.glass-solid,
+.popover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.055),
+    0 12px 36px rgba(0, 0, 0, 0.38);
+}
+.glass {
+  /* Secondary text is a step lighter on glass: it has to survive the galactic core passing underneath. */
+  --color-muted: #c6c6ce;
+  --color-dim: #a4a4ae;
+  background: rgba(11, 11, 15, 0.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.8) brightness(0.62);
+  backdrop-filter: blur(16px) saturate(1.8) brightness(0.62);
+}
+.glass-strong {
+  --color-muted: #c6c6ce;
+  --color-dim: #a4a4ae;
+  background: rgba(13, 13, 17, 0.72);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5) brightness(0.6);
+  backdrop-filter: blur(20px) saturate(1.5) brightness(0.6);
+}
+.glass-reading {
+  background: rgba(14, 14, 18, 0.9);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  backdrop-filter: blur(20px) saturate(1.3);
+}
+/* The size of the screen over a nearly opaque chat: a blur here cost twice the frame time and showed nothing. */
+.glass-solid {
+  background: rgba(14, 14, 18, 0.97);
+}
+.glass-lite .glass,
+.glass-lite .glass-strong {
+  background: rgba(14, 14, 18, 0.88);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.glass-lite .titlebar,
+.glass-lite .glass-reading,
+.glass-lite .popover {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.popover {
+  background: rgba(20, 20, 25, 0.94);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 18px 50px rgba(0, 0, 0, 0.55);
+}
+
+/* Over the map only the glass catches the pointer; the rest of the layout lets it through to the universe. */
+/* The universe paints below body, so body and #root have to step aside too; portals (dialogs, popovers) stay clickable. */
+/* A class on body, set from App: a :has() here made every keystroke in the page recalculate the style of the whole document. */
+body.on-home,
+body.on-home #root,
+.app-root.on-home {
+  pointer-events: none;
+}
+body.on-home > :not(#root) {
+  pointer-events: auto;
+}
+.app-root.on-home > nav,
+.app-root.on-home .glass,
+.app-root.on-home .glass-strong,
+.app-root.on-home .glass-reading,
+.app-root.on-home [role='alert'],
+.app-root.on-home .home-chat > * {
+  pointer-events: auto;
+}
+.home-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  overflow: auto;
+}
+.home-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.home-slot {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+/* Takes the room it needs and no more. What opens pushes its neighbours away: a fluid widget gives up height first, then the column scrolls. */
+.home-widget {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  border-radius: 1rem;
+  transition:
+    height 240ms var(--ease-drawer),
+    min-height 240ms var(--ease-drawer),
+    width 240ms var(--ease-drawer);
+}
+.home-widget.is-fluid {
+  flex: 0 1 auto;
+  min-height: 180px;
+}
+.home-widget.is-collapsed {
+  flex: none;
+  min-height: 0;
+}
+.home-widget.is-sizing {
+  transition: none;
+}
+.widget-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.home-widget.is-collapsed .widget-head {
+  cursor: pointer;
+}
+.widget-icon {
+  width: 13px;
+  height: 13px;
+  background-color: currentColor;
+  mask: center / contain no-repeat;
+}
+/* Always there: the arrow is also the state, folded or open. */
+.widget-toggle {
+  color: var(--color-dim);
+  transition: color 150ms var(--ease-ui);
+}
+.widget-toggle:hover,
+.widget-toggle:focus-visible {
+  color: var(--color-fg);
+}
+.widget-dev {
+  opacity: 0;
+  transition: opacity 150ms var(--ease-ui);
+}
+.home-widget:hover .widget-dev,
+.home-widget:focus-within .widget-dev {
+  opacity: 1;
+}
+.md.widget-desc {
+  flex: none;
+  padding: 0 12px 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+/* A bare widget is its own glass: the title exists only while the body is folded away. */
+.home-widget.is-bare:not(.is-collapsed) .widget-head {
+  height: 0;
+  opacity: 0;
+  visibility: hidden;
+}
+.home-widget.is-bare .widget-head {
+  transition:
+    height 240ms var(--ease-drawer),
+    opacity 180ms var(--ease-ui);
+}
+/* 1fr to 0fr is the height of whatever is inside, animated without measuring it. */
+.widget-body {
+  display: grid;
+  flex: 0 1 auto;
+  grid-template-columns: minmax(0, 1fr); /* the slot's width, not the longest line's: a long project name truncates instead of widening the column */
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  transition:
+    grid-template-rows 240ms var(--ease-drawer),
+    opacity 180ms var(--ease-ui),
+    visibility 0s;
+}
+.home-widget.has-height .widget-body {
+  flex: 1 1 0;
+}
+.home-widget.is-collapsed .widget-body {
+  grid-template-rows: minmax(0, 0fr);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows 240ms var(--ease-drawer),
+    opacity 120ms var(--ease-ui),
+    visibility 0s 240ms;
+}
+/* Clips to the height it is given, and leaves room for the shadow of a bare widget's glass. */
+.widget-body-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: clip;
+  overflow-clip-margin: 24px;
+}
+[data-widget-resize] {
+  opacity: 0;
+  transition: opacity 150ms var(--ease-ui);
+}
+.home-widget:hover [data-widget-resize] {
+  opacity: 1;
+}
+.home-widget.is-lifted {
+  opacity: 0.35;
+}
+/* The copy under the hand: no blur to recompute on every move. */
+.widget-ghost {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none !important;
+  will-change: transform;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+.widget-ghost.glass,
+.widget-ghost .glass {
+  background: rgb(24, 24, 29);
+  backdrop-filter: none;
+}
+body.widget-dragging,
+body.widget-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+.home-zone {
+  position: absolute;
+  display: flex;
+  justify-content: center;
+  padding-top: 6px;
+  border: 1px dashed rgba(217, 119, 87, 0.45);
+  border-radius: 1rem;
+  background: rgba(217, 119, 87, 0.05);
+  color: var(--color-soft);
+  font-size: 11.5px;
+}
+.home-zone.is-target {
+  border: 1px solid var(--color-accent);
+  background: rgba(217, 119, 87, 0.2);
+  color: var(--color-fg);
+}
+.home-zone span {
+  height: fit-content;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: rgba(14, 14, 18, 0.9);
+}
+.home-zone-line {
+  position: absolute;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+}
+.home-view {
+  display: none;
+}
+.home-chat {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  flex: none;
+  order: 10;
+}
+@media (max-width: 1279px) {
+  /* The window is one column here, the chat under everything: an empty slot must not leave a double gap. */
+  .home-center,
+  .home-col {
+    display: contents;
+  }
+  .home-slot:empty {
+    margin-top: -10px;
+  }
+  .home-slot[data-slot='top'] {
+    align-self: center;
+    width: min(520px, 100%);
+  }
+}
+@media (min-width: 1280px) {
+  .home-layer {
+    --col: 252px;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: var(--col) minmax(0, 1fr) var(--col);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 10px;
+  }
+  /* One tall column a side, two slots in it: the upper from the top, the lower from the bottom, and all of the height to share between them. */
+  .home-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    margin: -10px;
+    padding: 10px; /* room for the shadow of the glass, which the scroll would cut off */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  .home-col[data-col='left'] {
+    grid-area: 1 / 1;
+  }
+  .home-col[data-col='right'] {
+    grid-area: 1 / 3;
+  }
+  .home-col .home-slot {
+    display: contents;
+  }
+  .home-col .home-slot[data-slot^='bottom'] > :first-child {
+    margin-top: auto;
+  }
+  .home-center {
+    grid-area: 1 / 2;
+    min-height: 0;
+  }
+  .home-slot[data-slot='top'] {
+    flex: 0 1 auto;
+    align-items: center;
+    width: min(540px, 100%);
+    margin-bottom: -10px;
+    padding: 0 10px 10px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .home-slot[data-slot='top'] > .home-widget {
+    width: 100%;
+  }
+  .home-slot[data-slot='top'] > .home-widget.is-collapsed {
+    width: min(240px, 100%);
+  }
+  .home-view {
+    display: block;
+    position: absolute;
+    right: calc(var(--col) + 20px);
+    bottom: 10px;
+    transition: right 240ms var(--ease-drawer);
+  }
+  /* Nothing on the right: the map controls take the corner. */
+  .home-layer:has(.home-col):not(:has([data-col='right'] [data-widget])) .home-view {
+    right: 10px;
+  }
+  .home-chat {
+    position: static;
+    flex: none;
+    width: min(620px, calc(100% - 2 * 72px));
+    max-height: calc(100% - 60px);
+    margin-top: auto;
+  }
+}
+@media (min-width: 1600px) {
+  .home-layer {
+    --col: 286px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-widget,
+  .widget-toggle,
+  .widget-dev,
+  .widget-body,
+  .home-widget.is-collapsed .widget-body,
+  .home-widget.is-bare .widget-head,
+  .home-view {
+    transition: none;
+  }
+}
+.panel-scroll {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
+}
+
+/* One task on the progress widget. The row unfolds and folds like .widget-body; the bar and the number follow the percent by themselves. */
+@property --pct {
+  syntax: '<integer>';
+  inherits: false;
+  initial-value: 0;
+}
+.progress-row {
+  display: grid;
+  flex: none;
+  grid-template-rows: minmax(0, 1fr);
+  transition:
+    grid-template-rows 240ms var(--ease-drawer),
+    opacity 180ms var(--ease-ui);
+  @starting-style {
+    grid-template-rows: minmax(0, 0fr);
+    opacity: 0;
+  }
+}
+.progress-row.is-leaving {
+  grid-template-rows: minmax(0, 0fr);
+  opacity: 0;
+}
+.progress-fill {
+  transform: scaleX(var(--ratio));
+  transition:
+    transform 600ms var(--ease-drawer),
+    background-color 400ms var(--ease-ui);
+  @starting-style {
+    transform: scaleX(0);
+  }
+}
+.progress-num {
+  counter-reset: pct var(--pct);
+  transition: --pct 600ms var(--ease-drawer);
+  font-variant-numeric: tabular-nums;
+  &::after {
+    content: counter(pct) '%';
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-row,
+  .progress-fill,
+  .progress-num {
+    transition: none;
+  }
+}
+
+/* An invisible margin bridges the gap to the badge: the pointer never crosses open sky on its way in. */
+.project-popover::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  z-index: -1;
+}
+.home-layer.is-off {
+  display: none;
+}
+/* Under the home field, one line over the sky: the mode, the way to the reply, marks, and the menu at the far end. */
+.composer-under {
+  display: contents;
+}
+.home-chat .composer-under {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 0 6px 0 14px;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.home-chat .composer-foot {
+  margin: 0;
+  padding: 0;
+}
+
+/* Screens: a sheet of glass over the still universe. Work tabs sit on a calm, nearly solid base: reading comes first. */
+.sheet {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  margin: 0 8px 8px;
+  border-radius: 14px;
+  background: rgba(11, 11, 14, 0.56);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5) brightness(0.7);
+  backdrop-filter: blur(22px) saturate(1.5) brightness(0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.055);
+}
+.work-base {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  background: rgba(9, 9, 11, 0.95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.work-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  /* Wraps rather than scrolls: a scrolling bar has no scrollbar here, and the buttons past its edge are simply gone. */
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding: 8px 16px 8px 20px;
+  border-bottom: 1px solid var(--color-line2);
+  container-type: inline-size;
+}
+/* The files panel narrows the column: buttons keep their icons and accessible names, the labels step aside. */
+@container (max-width: 940px) {
+  .work-bar button:not([role='combobox']) {
+    gap: 0;
+    font-size: 0;
+  }
+}
+@container (max-width: 800px) {
+  .work-bar strong {
+    max-width: 150px;
+  }
+  .work-bar button[role='combobox'] {
+    max-width: 108px;
+  }
+}
+.composer-solid {
+  background: #131317;
+}
+.sheet-bar {
+  background: rgba(15, 15, 19, 0.82);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+/* ---------- Title bar: the nav is the window title bar ---------- */
+.titlebar {
+  position: relative;
+  z-index: 20;
+  background: linear-gradient(to bottom, rgba(5, 5, 8, 0.66), rgba(5, 5, 8, 0.34));
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  app-region: drag;
+  -webkit-app-region: drag;
+  padding-left: env(titlebar-area-x, 0px);
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
+/* In the window app the room for the caption buttons stays in the layout, full screen or not: leaving it empty is what
+   lets the group slide into it on the compositor, with no layout on any frame. */
+.titlebar.has-caption {
+  padding-right: 0;
+}
+.titlebar-right {
+  margin-right: var(--caption-w, 0px);
+  transition: transform 300ms cubic-bezier(0.45, 0, 0.2, 1);
+}
+.titlebar-right.is-clear {
+  transform: translateX(var(--caption-w, 0px));
+}
+.titlebar button,
+.titlebar a,
+.titlebar [role='tab'],
+.titlebar input,
+/* The system answers drag regions before the page does, whatever is painted over them. */
+.popover,
+.no-drag {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+/* A separate window has no frame of its own: its bar drags it. */
+.popout-bar {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+.popout-window [role='dialog'] {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+@property --tab-fade-start {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@property --tab-fade-end {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+/* The fades say that tabs go on past that edge; each one comes only while there is something behind it. */
+.tabstrip {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--tab-fade-start), #000 calc(100% - var(--tab-fade-end)), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 var(--tab-fade-start), #000 calc(100% - var(--tab-fade-end)), transparent);
+  transition:
+    --tab-fade-start 180ms var(--ease-ui),
+    --tab-fade-end 180ms var(--ease-ui);
+}
+.tabstrip.fade-start {
+  --tab-fade-start: 24px;
+}
+.tabstrip.fade-end {
+  --tab-fade-end: 24px;
+}
+@media (max-width: 559px) {
+  .tabstrip.fade-start {
+    --tab-fade-start: 12px;
+  }
+  .tabstrip.fade-end {
+    --tab-fade-end: 12px;
+  }
+}
+/* Full of tabs it has no empty space left to drag the window by, and over a drag region the system keeps the wheel. */
+.tabstrip.is-overflowing {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+.tabstrip-count {
+  flex: none;
+  width: 0;
+  overflow: hidden;
+  align-self: center;
+  text-align: center;
+  white-space: nowrap;
+  opacity: 0;
+  transition:
+    width 180ms var(--ease-ui),
+    opacity 140ms ease;
+}
+.tabstrip-count.is-on {
+  width: 28px;
+  opacity: 1;
+}
+.tab-pill {
+  position: relative;
+  height: 32px;
+  border-radius: 9px;
+  scroll-margin-inline: 32px; /* EDGE_ROOM in useTabStrip.ts: a tab reached with the keyboard stops clear of the fade */
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.tab-pill.is-selected {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+/* The logo is the way Home: while Home is on screen it glows softly instead of a selected pill. */
+.titlebar-logo {
+  height: 32px;
+}
+.titlebar-logo > svg,
+.titlebar-logo > span {
+  transition: filter 220ms ease, text-shadow 220ms ease;
+}
+.titlebar-logo.is-home > svg {
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--color-accent) 75%, transparent));
+}
+.titlebar-logo.is-home > span {
+  text-shadow: 0 0 12px color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
+/* ---------- Press feedback ---------- */
+/* Barely there and soft: 1% on a wide card is still a few pixels. Quick down, slower back, so a fast click reads as one movement. */
+.press {
+  transition:
+    transform 240ms var(--ease-ui),
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease;
+}
+.press:active:not(:disabled) {
+  transform: scale(0.99);
+  transition-duration: 90ms, 150ms, 150ms, 150ms, 150ms;
+}
+
+/* ---------- Surfaces that enter ---------- */
+.enter-fade {
+  transition:
+    opacity 160ms var(--ease-ui),
+    transform 160ms var(--ease-ui);
+  @starting-style {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.enter-pop {
+  transform-origin: var(--radix-popover-content-transform-origin, var(--radix-select-content-transform-origin, center));
+  transition:
+    opacity 140ms var(--ease-ui),
+    transform 140ms var(--ease-ui);
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.enter-dialog {
+  transition:
+    opacity 180ms var(--ease-ui),
+    transform 180ms var(--ease-ui);
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+.enter-overlay {
+  transition: opacity 160ms ease;
+  @starting-style {
+    opacity: 0;
+  }
+}
+.note-panel {
+  transition: transform 190ms var(--ease-drawer);
+  @starting-style {
+    transform: translateX(100%);
+  }
+}
+
+/* Pulsing dot for sessions that are working. Opacity only, stops with reduced motion. */
+@keyframes live-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.dot-working {
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes indet {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.progress-indet {
+  animation: indet 1.2s linear infinite;
+}
+
+.spinner {
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.skeleton {
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 5px;
+}
+
+/* The home field: one row while the text fits beside the buttons, then the text over them. composerLayout.ts animates the change. The reply panel opens and leaves as smoothly. */
+.composer-tall {
+  flex-wrap: wrap;
+}
+.composer-tall textarea {
+  flex-basis: 100%;
+}
+.root-panel {
+  height: 34vh;
+  margin-bottom: 8px;
+  overflow: hidden;
+  transition:
+    height 240ms var(--ease-drawer),
+    margin-bottom 240ms var(--ease-drawer),
+    opacity 180ms var(--ease-ui);
+  @starting-style {
+    height: 0;
+    margin-bottom: 0;
+    opacity: 0;
+  }
+}
+.root-panel.is-large {
+  height: 70vh;
+}
+.root-panel.is-leaving {
+  height: 0;
+  margin-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root-panel,
+  .titlebar-right,
+  .tabstrip,
+  .tabstrip-count {
+    transition: none;
+  }
+  .press,
+  .enter-fade,
+  .enter-pop,
+  .enter-dialog,
+  .note-panel {
+    transition-property: opacity, background-color, color, border-color;
+    transform: none;
+  }
+  .press:active:not(:disabled) {
+    transform: none;
+  }
+  .dot-working,
+  .progress-indet {
+    animation: none;
+  }
+  .spinner {
+    animation-duration: 1.6s;
+  }
+}
+
+/* ---------- Rendered markdown ---------- */
+.md {
+  color: var(--color-soft);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md pre,
+.md blockquote,
+.md table {
+  margin: 0 0 10px;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  color: var(--color-fg);
+  margin: 18px 0 8px;
+  line-height: 1.3;
+}
+.md h1 {
+  font-size: 18px;
+}
+.md h2 {
+  font-size: 16px;
+}
+.md h3,
+.md h4 {
+  font-size: 14px;
+}
+.md ul,
+.md ol {
+  padding-left: 22px;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li + li {
+  margin-top: 3px;
+}
+.md li::marker {
+  color: var(--color-dim);
+}
+.md a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-color: rgba(217, 119, 87, 0.4);
+  text-underline-offset: 2px;
+}
+.md code {
+  font: 12.5px var(--font-mono);
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.md pre {
+  background: var(--color-card);
+  border: 1px solid var(--color-line2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.md pre code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.md blockquote {
+  border-left: 2px solid var(--color-line);
+  padding-left: 12px;
+  color: var(--color-muted);
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+  /* A cell is not prose: "anywhere" would split every word to fit, a wide table scrolls instead. */
+  overflow-wrap: normal;
+  width: max-content;
+  max-width: 100%;
+}
+.md th,
+.md td {
+  border: 1px solid var(--color-line);
+  padding: 4px 9px;
+  text-align: left;
+  overflow-wrap: break-word;
+  min-width: 7ch;
+  vertical-align: top;
+}
+.md td {
+  max-width: 48ch;
+}
+.md th {
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--color-line);
+  margin: 14px 0;
+}
+.md img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+.md-sm {
+  font-size: 13px;
+  line-height: 1.55;
+}
+.md .chat-img {
+  display: block;
+  max-height: 288px;
+  margin: 6px 0;
+  cursor: zoom-in;
+  border: 1px solid var(--color-line2);
+}
+.md code.hljs {
+  color: var(--color-soft);
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-built_in {
+  color: #d99a7f;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute {
+  color: #a9c99b;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: #d9bd7f;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: #9dbbdc;
+}
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-type,
+.hljs-params {
+  color: #c3aedb;
+}
+.hljs-comment,
+.hljs-quote,
+.hljs-meta {
+  color: var(--color-dim);
+}
+.hljs-deletion {
+  color: #e08b7a;
+}
+
+/* A path in the chat: it looks like text until the eye looks for a file, then it is clearly a link. */
+a.file-link {
+  color: inherit;
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(217, 119, 87, 0.55);
+  text-underline-offset: 2px;
+}
+a.file-link:hover,
+.md a.file-link:hover code {
+  color: var(--color-accent);
+}
+
+.tool-badge {
+  --tint: 168, 168, 178;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  max-width: 260px;
+  padding: 0 5px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgba(var(--tint), 0.12);
+  color: rgb(var(--tint));
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-badge[data-kind='read'] { --tint: 157, 187, 220; }
+.tool-badge[data-kind='edit'] { --tint: 217, 154, 127; }
+.tool-badge[data-kind='bash'] { --tint: 143, 201, 154; }
+.tool-badge[data-kind='search'] { --tint: 195, 174, 219; }
+.tool-badge[data-kind='web'] { --tint: 127, 200, 208; }
+.tool-badge[data-kind='skill'] { --tint: 217, 189, 127; }
+.tool-badge[data-kind='plan'] { --tint: 190, 190, 150; }
+.tool-badge[data-kind='mcp'] { --tint: 220, 160, 190; }
+/* Inside a terminal's grid: no padding, a character stays one cell wide. */
+.term-badge {
+  --tint: 143, 201, 154;
+  border-radius: 3px;
+  color: rgb(var(--tint));
+  background: rgba(var(--tint), 0.14);
+  box-shadow: 0 0 0 1px rgba(var(--tint), 0.14);
+}
+.term-badge[data-tone='warn'] { --tint: 217, 189, 127; }
+.term-badge[data-tone='bad'] { --tint: 229, 118, 109; }
+.term-key { color: var(--color-muted); }
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+  line-height: 16px;
+}
+
+/* Placed by `transform`, entering by `translate` and `scale`: the two add up, the entrance does not disturb the position. */
+.ui-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  /* max-content: the width does not depend on where it stands, it is placed after measuring. */
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(24, 24, 30, 0.98);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 12px 32px rgba(0, 0, 0, 0.5);
+  color: var(--color-soft);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+  transition: opacity 110ms ease;
+  animation: ui-tooltip-in 170ms var(--ease-ui);
+}
+.ui-tooltip[data-long] {
+  max-width: min(420px, calc(100vw - 16px));
+}
+.ui-tooltip[data-moving] {
+  transition: opacity 110ms ease, transform 160ms var(--ease-ui);
+}
+.ui-tooltip[data-leaving] {
+  opacity: 0;
+}
+.ui-tooltip[data-side='bottom'] { --tip-from: 0 -3px; }
+.ui-tooltip[data-side='right'] { --tip-from: -3px 0; }
+.ui-tooltip[data-side='left'] { --tip-from: 3px 0; }
+.ui-tooltip kbd {
+  margin-left: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.ui-tooltip .md {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  user-select: none;
+}
+.ui-tooltip .md p,
+.ui-tooltip .md ul,
+.ui-tooltip .md ol,
+.ui-tooltip .md pre,
+.ui-tooltip .md blockquote,
+.ui-tooltip .md table {
+  margin-bottom: 6px;
+}
+.ui-tooltip .md h1,
+.ui-tooltip .md h2,
+.ui-tooltip .md h3,
+.ui-tooltip .md h4 {
+  margin: 8px 0 4px;
+  font-size: 12.5px;
+}
+.ui-tooltip .md ul,
+.ui-tooltip .md ol {
+  padding-left: 16px;
+}
+.ui-tooltip .md code {
+  font-size: 11px;
+}
+@keyframes ui-tooltip-in {
+  from {
+    opacity: 0;
+    translate: var(--tip-from, 0 3px);
+    scale: 0.985;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-tooltip {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Sessions that belong to Claude OS itself: everything else in the list stays plain. */
+.session-stripe { box-shadow: inset 2px 0 0 var(--session-stripe); background: color-mix(in srgb, var(--session-stripe) 5%, transparent); }
+.session-stripe-root { --session-stripe: var(--color-accent); }
+.session-stripe-service { --session-stripe: #6fa8dc; }
+.session-stripe-os { --session-stripe: var(--color-warn); }

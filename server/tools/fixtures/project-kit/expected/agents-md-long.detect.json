@@ -1,0 +1,15 @@
+{
+  "stacks": [],
+  "commands": [],
+  "skipped": [],
+  "related": [],
+  "formatter": null,
+  "docsDir": "docs",
+  "generated": [],
+  "instructions": [
+    "CLAUDE.md",
+    "AGENTS.md"
+  ],
+  "ambiguities": [],
+  "git": true
+}

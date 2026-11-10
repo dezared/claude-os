@@ -1,0 +1,31 @@
+{
+  "id": "ide-plus",
+  "name": "IDE+",
+  "description": "A light editor on top of the project files panel: edit code in place, and look at pictures, SVG, video and music without leaving Claude OS.",
+  "descriptionRu": "Лёгкий редактор поверх панели файлов проекта: правка кода на месте, просмотр картинок, SVG, видео и музыки прямо в Claude OS.",
+  "features": [
+    "File icons and syntax colours in the project tree and the code view",
+    "In-place editing with Ctrl+S; a change on disk asks before overwriting",
+    "Pictures with zoom, SVG as a picture or as code",
+    "Video and audio players with seeking",
+    "Code zoom and a resizable pane",
+    "Open a file or folder in the system file manager"
+  ],
+  "featuresRu": [
+    "Иконки файлов и цвета синтаксиса в дереве проекта и просмотре кода",
+    "Правка на месте с Ctrl+S; изменение на диске спрашивает перед перезаписью",
+    "Картинки с масштабом, SVG как картинка или как код",
+    "Видео и аудио с перемоткой",
+    "Масштаб кода и панель, меняющая ширину",
+    "Открытие файла или папки в системном проводнике"
+  ],
+  "icon": "square-code",
+  "version": "1.1.0",
+  "author": "Claude OS",
+  "contains": {
+    "ui": {
+      "entry": "ui/index.js",
+      "permissions": ["files.write", "files.reveal", "files.media"]
+    }
+  }
+}

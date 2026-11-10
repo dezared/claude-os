@@ -1,0 +1,45 @@
+{
+  "id": "rg-context",
+  "name": "rg-context",
+  "description": "Context search on top of ripgrep: ranks files by how much of the match they hold, shows the best ones with surrounding lines, and stays inside an output budget.",
+  "descriptionRu": "Контекстный поиск поверх ripgrep: ранжирует файлы по числу совпадений, показывает лучшие с соседними строками и держится в заданном объёме вывода.",
+  "features": [
+    "Files ranked by matches, tests and docs below source",
+    "Find a definition by name across common languages",
+    "A line budget, so a search does not flood the context"
+  ],
+  "featuresRu": [
+    "Файлы по числу совпадений, тесты и документация ниже исходников",
+    "Поиск определения по имени в распространённых языках",
+    "Лимит строк, чтобы поиск не забивал контекст"
+  ],
+  "icon": "file-search",
+  "version": "1.1.0",
+  "author": "Claude OS",
+  "dependencies": [
+    {
+      "id": "claude-md",
+      "kind": "config",
+      "level": "required",
+      "file": "claude-md",
+      "block": "claude-md-block.md",
+      "title": "Lines in CLAUDE.md",
+      "titleRu": "Строки в CLAUDE.md",
+      "why": "Claude reaches for plain grep by habit. Without these lines it rarely uses the skill.",
+      "whyRu": "Claude по привычке берётся за обычный grep. Без этих строк он почти не будет пользоваться скиллом."
+    },
+    {
+      "id": "ripgrep",
+      "kind": "package",
+      "level": "required",
+      "bin": "rg",
+      "title": "ripgrep",
+      "why": "The search script runs rg.",
+      "whyRu": "Скрипт поиска запускает rg.",
+      "task": "Install ripgrep so that rg is on PATH, with the package manager this system uses, then check it with rg --version."
+    }
+  ],
+  "contains": {
+    "skills": ["rg-context"]
+  }
+}

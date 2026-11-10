@@ -1,0 +1,26 @@
+{
+  "id": "os-builder",
+  "name": "Claude OS builder",
+  "description": "Skills for extending Claude OS: home screen widgets with their own React view, Claude OS plugins, and work tab actions (draft).",
+  "descriptionRu": "Скиллы для расширения Claude OS: виджеты главного экрана со своим видом на React, плагины Claude OS и кнопки-команды вкладок (черновик).",
+  "features": [
+    "Widgets: data from an approved command, a React view in the widget's own file, the look of the built-in panels",
+    "Plugins: the manifest, skills, hooks, MCP servers, interface code and its permissions",
+    "Actions: buttons in work tabs that run an approved command (draft)"
+  ],
+  "featuresRu": [
+    "Виджеты: данные из одобренной команды, вид на React в файле самого виджета, стиль встроенных панелей",
+    "Плагины: манифест, скиллы, хуки, MCP-серверы, код интерфейса и его разрешения",
+    "Кнопки-команды: кнопки во вкладках, запускающие одобренную команду (черновик)"
+  ],
+  "icon": "layout-dashboard",
+  "version": "1.0.0",
+  "author": "Claude OS",
+  "contains": {
+    "skills": [
+      "claude-os-widgets",
+      "claude-os-plugins",
+      "claude-os-actions"
+    ]
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "stacks": [
+    {
+      "stack": "python",
+      "dir": "api",
+      "runner": null
+    },
+    {
+      "stack": "ts",
+      "dir": "web",
+      "runner": "yarn"
+    }
+  ],
+  "commands": [
+    {
+      "step": "lint",
+      "run": "ruff check",
+      "cwd": "api",
+      "from": "api/pyproject.toml#tool.ruff"
+    },
+    {
+      "step": "test",
+      "run": "pytest",
+      "cwd": "api",
+      "from": "api/pyproject.toml#tool.pytest"
+    },
+    {
+      "step": "lint",
+      "run": "yarn run lint",
+      "cwd": "web",
+      "from": "web/package.json#scripts.lint"
+    },
+    {
+      "step": "test",
+      "run": "yarn run test",
+      "cwd": "web",
+      "from": "web/package.json#scripts.test"
+    },
+    {
+      "step": "build",
+      "run": "yarn run build",
+      "cwd": "web",
+      "from": "web/package.json#scripts.build"
+    }
+  ],
+  "skipped": [
+    {
+      "step": "typecheck",
+      "skipped": "mypy not found"
+    }
+  ],
+  "related": [
+    {
+      "dir": "api",
+      "mode": "pytest-name"
+    },
+    {
+      "dir": "web",
+      "mode": "vitest"
+    }
+  ],
+  "formatter": {
+    "step": "format",
+    "run": "ruff format",
+    "cwd": "api",
+    "from": "api/pyproject.toml#tool.ruff"
+  },
+  "docsDir": "docs",
+  "generated": [
+    "api/__pycache__/",
+    "web/node_modules/",
+    "web/dist/"
+  ],
+  "instructions": [],
+  "ambiguities": [
+    "package-managers",
+    "monorepo"
+  ],
+  "git": true
+}

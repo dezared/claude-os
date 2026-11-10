@@ -1,0 +1,49 @@
+{
+  "stacks": [
+    {
+      "stack": "rust",
+      "dir": ".",
+      "runner": null
+    }
+  ],
+  "commands": [
+    {
+      "step": "typecheck",
+      "run": "cargo check",
+      "cwd": ".",
+      "from": "PATH:cargo"
+    },
+    {
+      "step": "lint",
+      "run": "cargo clippy -- -D warnings",
+      "cwd": ".",
+      "from": "PATH:cargo-clippy"
+    },
+    {
+      "step": "test",
+      "run": "cargo test",
+      "cwd": ".",
+      "from": "PATH:cargo"
+    }
+  ],
+  "skipped": [],
+  "related": [
+    {
+      "dir": ".",
+      "mode": "stop"
+    }
+  ],
+  "formatter": {
+    "step": "format",
+    "run": "rustfmt",
+    "cwd": ".",
+    "from": "PATH:rustfmt"
+  },
+  "docsDir": "docs",
+  "generated": [
+    "target/"
+  ],
+  "instructions": [],
+  "ambiguities": [],
+  "git": true
+}

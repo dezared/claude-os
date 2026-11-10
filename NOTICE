@@ -1,0 +1,17 @@
+Claude OS
+Copyright 2026 DezareD
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Claude OS is an independent, unofficial project. It is not made, endorsed or
+supported by Anthropic. "Claude", "Claude Code" and "Anthropic" are trademarks
+of Anthropic, PBC, used here only to describe what this software works with.
+
+Third-party components with their own licenses:
+
+- plugins/agentation/ui/agentation.vendor.js: agentation, Copyright (c) 2026
+  Benji Taylor, PolyForm Shield License 1.0.0 (plugins/agentation/LICENSE.agentation).
+  The Apache License does not apply to this file.
+
+npm dependencies are not part of this repository; each is covered by the
+license in its own package.

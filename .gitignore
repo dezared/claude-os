@@ -1,0 +1,12 @@
+node_modules
+dist/
+data/
+vault/
+desktop/build/
+*.log
+.superpowers/
+config/
+CLAUDE.local.md
+.claude/settings.local.json
+.worktrees/
+docs/handoff/

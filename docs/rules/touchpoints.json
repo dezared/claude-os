@@ -1,0 +1,39 @@
+[
+  {
+    "name": "microtasks",
+    "source": "server/tools/microtasks.ts",
+    "memberRegex": "^  '([\\w-]+)': '(?:owner|service)',$",
+    "fileExists": "root/microtasks/{member}.md",
+    "reverseDir": "root/microtasks"
+  },
+  {
+    "name": "builtin-widgets",
+    "source": "web/src/home/slots.ts",
+    "memberRegex": "(?<=^export type BuiltinId = .*)'([\\w-]+)'",
+    "registries": ["root/reference/widgets.md"]
+  },
+  {
+    "name": "home-slots",
+    "source": "shared/contract.ts",
+    "memberRegex": "(?<=^export (?:type HomeSlot = |const HOME_SLOTS = \\[).*)'([\\w-]+)'",
+    "registries": ["root/reference/widgets.md"]
+  },
+  {
+    "name": "widget-types",
+    "source": "server/tools/widgets.ts",
+    "memberRegex": "^  \\| \\{ id: string; title: string; type: '(\\w+)'",
+    "registries": ["root/reference/widgets.md"]
+  },
+  {
+    "name": "plugin-permissions",
+    "source": "shared/contract.ts",
+    "memberRegex": "(?<=^export const OS_PLUGIN_PERMISSIONS = \\[.*)'([\\w.]+)'",
+    "registries": ["root/reference/plugins.md"]
+  },
+  {
+    "name": "plugin-components",
+    "source": "shared/contract.ts",
+    "memberRegex": "(?<=^export const OS_PLUGIN_COMPONENTS = \\[.*)'(\\w+)'",
+    "registries": ["root/reference/plugins.md"]
+  }
+]

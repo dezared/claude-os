@@ -1,0 +1,40 @@
+{
+  "id": "agentation",
+  "name": "Agentation",
+  "description": "Annotate Claude OS's own interface with element-bound fixes for Claude. The toolbar is in the bottom right corner as soon as the plugin is enabled; /agentation hides it and brings it back. agentation itself is under PolyForm Shield 1.0.0, see LICENSE.agentation.",
+  "descriptionRu": "Заметки к интерфейсу Claude OS с привязкой к элементам, которые видит Claude. Панель появляется в правом нижнем углу сразу после включения; /agentation прячет и возвращает её. Сам agentation под лицензией PolyForm Shield 1.0.0, см. LICENSE.agentation.",
+  "features": [
+    "A toolbar over every screen and every separate window",
+    "A note bound to the element it is about, inside open dialogs too",
+    "Notes wait in the browser while the server is away and arrive when it returns",
+    "A mark beside the message field shows whether notes reach Claude; a click on it hides the toolbar"
+  ],
+  "featuresRu": [
+    "Панель поверх всех экранов и отдельных окон",
+    "Заметка привязана к элементу, в том числе внутри открытых диалогов",
+    "Пока сервер недоступен, заметки ждут в браузере и уходят, когда он вернётся",
+    "Метка у поля ввода показывает, доходят ли заметки до Claude; клик по ней прячет панель"
+  ],
+  "icon": "message-square-plus",
+  "version": "1.1.0",
+  "author": "Claude OS",
+  "dependencies": [
+    {
+      "id": "mcp-server",
+      "kind": "service",
+      "level": "recommended",
+      "url": "http://127.0.0.1:4747/health",
+      "title": "agentation MCP server",
+      "titleRu": "MCP-сервер agentation",
+      "why": "Without it notes stay in the browser and Claude does not see them.",
+      "whyRu": "Без него заметки остаются в браузере, и Claude их не видит.",
+      "task": "Make the agentation MCP server available to Claude on port 4747. Look at how it is configured in Claude's MCP settings first; add it there only if it is missing, and check that the address above answers."
+    }
+  ],
+  "contains": {
+    "skills": ["agentation-annotations"],
+    "ui": {
+      "entry": "ui/index.js"
+    }
+  }
+}

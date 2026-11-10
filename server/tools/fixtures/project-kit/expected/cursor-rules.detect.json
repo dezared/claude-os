@@ -1,0 +1,15 @@
+{
+  "stacks": [],
+  "commands": [],
+  "skipped": [],
+  "related": [],
+  "formatter": null,
+  "docsDir": "docs",
+  "generated": [],
+  "instructions": [
+    ".cursorrules",
+    ".cursor/rules/api.mdc"
+  ],
+  "ambiguities": [],
+  "git": true
+}

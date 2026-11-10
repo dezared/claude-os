@@ -1,0 +1,39 @@
+{
+  "stacks": [
+    {
+      "stack": "ts",
+      "dir": ".",
+      "runner": "pnpm"
+    }
+  ],
+  "commands": [
+    {
+      "step": "typecheck",
+      "run": "pnpm exec tsc --noEmit",
+      "cwd": ".",
+      "from": "package.json#devDependencies.typescript"
+    },
+    {
+      "step": "test",
+      "run": "pnpm run test",
+      "cwd": ".",
+      "from": "package.json#scripts.test"
+    }
+  ],
+  "skipped": [],
+  "related": [
+    {
+      "dir": ".",
+      "mode": "node-test"
+    }
+  ],
+  "formatter": null,
+  "docsDir": "docs",
+  "generated": [
+    "node_modules/",
+    "dist/"
+  ],
+  "instructions": [],
+  "ambiguities": [],
+  "git": true
+}

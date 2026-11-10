@@ -1,0 +1,25 @@
+{
+  "stacks": [],
+  "commands": [
+    {
+      "step": "lint",
+      "run": "make lint",
+      "cwd": ".",
+      "from": "Makefile#lint"
+    },
+    {
+      "step": "test",
+      "run": "make test",
+      "cwd": ".",
+      "from": "Makefile#test"
+    }
+  ],
+  "skipped": [],
+  "related": [],
+  "formatter": null,
+  "docsDir": "docs",
+  "generated": [],
+  "instructions": [],
+  "ambiguities": [],
+  "git": true
+}

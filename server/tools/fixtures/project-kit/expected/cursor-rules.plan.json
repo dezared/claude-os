@@ -1,0 +1,170 @@
+{
+  "action": "install",
+  "files": [
+    {
+      "path": "CLAUDE.md",
+      "owner": "seed",
+      "action": "migrate"
+    },
+    {
+      "path": ".claude/rules/00-workflow.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/rules/10-code-standard.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/rules/20-mistakes.md",
+      "owner": "seed",
+      "action": "add"
+    },
+    {
+      "path": ".claude/agents/reviewer.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/agents/scout.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/agents/test-runner.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/skills/spec/SKILL.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/skills/feature/SKILL.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/skills/split-file/SKILL.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/skills/compound/SKILL.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/skills/handoff/SKILL.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": "docs/specs/TEMPLATE.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": "docs/plans/README.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": "docs/solutions/README.md",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": "docs/rules/common-mistakes.md",
+      "owner": "seed",
+      "action": "add"
+    },
+    {
+      "path": "docs/rules/pattern-candidates.md",
+      "owner": "seed",
+      "action": "add"
+    },
+    {
+      "path": "docs/rules/touchpoints.md",
+      "owner": "seed",
+      "action": "add"
+    },
+    {
+      "path": "docs/rules/touchpoints.json",
+      "owner": "seed",
+      "action": "add"
+    },
+    {
+      "path": "docs/rules/testing.md",
+      "owner": "seed",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/gate.mjs",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/size.mjs",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/touchpoints.mjs",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/metrics.mjs",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/hooks/protect-files.mjs",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/hooks/after-edit.mjs",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/hooks/stop-gate.mjs",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/hooks/briefing.mjs",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/kit.json",
+      "owner": "kit",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/size-baseline.json",
+      "owner": "seed",
+      "action": "add"
+    },
+    {
+      "path": ".gitignore",
+      "owner": "merged",
+      "action": "add"
+    },
+    {
+      "path": ".claude/settings.json",
+      "owner": "merged",
+      "action": "add"
+    },
+    {
+      "path": ".claude/kit/lock.json",
+      "owner": "kit",
+      "action": "add"
+    }
+  ]
+}

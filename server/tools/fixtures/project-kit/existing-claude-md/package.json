@@ -1,0 +1,14 @@
+{
+  "name": "inventory-service",
+  "version": "2.4.1",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "lint": "eslint src test",
+    "test": "node --test test/",
+    "build": "node scripts/build.js"
+  },
+  "devDependencies": {
+    "eslint": "^9.14.0"
+  }
+}

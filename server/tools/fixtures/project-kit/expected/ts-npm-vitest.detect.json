@@ -1,0 +1,50 @@
+{
+  "stacks": [
+    {
+      "stack": "ts",
+      "dir": ".",
+      "runner": "npm"
+    }
+  ],
+  "commands": [
+    {
+      "step": "typecheck",
+      "run": "npm run typecheck",
+      "cwd": ".",
+      "from": "package.json#scripts.typecheck"
+    },
+    {
+      "step": "lint",
+      "run": "npm run lint",
+      "cwd": ".",
+      "from": "package.json#scripts.lint"
+    },
+    {
+      "step": "test",
+      "run": "npm run test",
+      "cwd": ".",
+      "from": "package.json#scripts.test"
+    }
+  ],
+  "skipped": [],
+  "related": [
+    {
+      "dir": ".",
+      "mode": "vitest"
+    }
+  ],
+  "formatter": {
+    "step": "format",
+    "run": "npx prettier --write",
+    "cwd": ".",
+    "from": "package.json#devDependencies.prettier"
+  },
+  "docsDir": "docs",
+  "generated": [
+    "node_modules/",
+    "dist/"
+  ],
+  "instructions": [],
+  "ambiguities": [],
+  "git": true
+}

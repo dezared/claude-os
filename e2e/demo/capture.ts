@@ -1,5 +1,5 @@
 // Mock run of Claude OS for the README: the e2e fixture server with made-up English data, a headless Chromium,
-// one PNG per feature into docs/media/ and a short demo GIF. No Claude, no network, no user data.
+// one PNG per feature into docs/media/ and a 60 fps demo video. No Claude, no network, no user data.
 // Run: npm run build && npm run demo:media
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,8 +7,8 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { fixtureSettings } from '../fixture-features.ts';
 import { defaultFixture, startFixture, type FixtureServer } from '../fixture-server.ts';
 import { toDemo } from './demo-data.ts';
-import { recordGif } from './gif.ts';
 import { nav, openMenu, openPage, openTab, OUT, VIEWPORT } from './page.ts';
+import { recordVideo } from './video.ts';
 
 type Scene = { name: string; settle?: number; go?: (page: Page) => Promise<void> };
 
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
       for (const m of await shoot(browser, fx, scene)) missed.add(m);
       console.log('shot', scene.name);
     }
-    if (!only.length || only.includes('gif')) await recordGif(browser, fx);
+    if (!only.length || only.includes('video')) await recordVideo(browser, fx);
   } finally {
     await browser.close();
     await fx.close();

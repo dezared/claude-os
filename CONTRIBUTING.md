@@ -39,17 +39,17 @@ The full text is [docs/rules/code-style.md](docs/rules/code-style.md). In short:
 
 Where things are: [docs/rules/architecture.md](docs/rules/architecture.md).
 
-## Screenshots and the demo GIF
+## Screenshots and the demo video
 
 The images in the README come from a mock run: the e2e fixture server with made-up English data, driven by Playwright. No Claude, no network, no personal data.
 
 ```sh
 npm run build
-npm run demo:media             # every screenshot and docs/media/demo.gif (needs ffmpeg)
-npm run demo:media -- home chat   # only some scenes
+npm run demo:media                # every screenshot, docs/media/demo.webp and demo.mp4 (needs ffmpeg)
+npm run demo:media -- home video  # only some scenes
 ```
 
-The scenes are in `e2e/demo/capture.ts`, the GIF scenario in `e2e/demo/gif.ts`, the demo data in `e2e/demo/demo-data.ts`.
+The scenes are in `e2e/demo/capture.ts`, the 60 fps video scenario in `e2e/demo/video.ts` (DevTools screencast, an animated pointer from `e2e/demo/cursor.ts`), the demo data in `e2e/demo/demo-data.ts`.
 
 ## Pull requests
 

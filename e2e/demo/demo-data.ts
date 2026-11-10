@@ -1,4 +1,4 @@
-// Made-up English data for the README screenshots and the demo GIF. Nothing here is a real project or a real session.
+// Made-up English data for the README screenshots and the demo video. Nothing here is a real project or a real session.
 // The test fixtures stay as they are: this layer renames their projects and translates their strings on the way to the page.
 import type { ChatEvent, SessionInfo, Tab } from '../../shared/contract.ts';
 import { fixtureMcp } from '../fixture-features.ts';

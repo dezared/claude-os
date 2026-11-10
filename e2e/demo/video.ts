@@ -1,13 +1,14 @@
-// The README GIF: home map, a new task in a tab, Claude answering live, then analytics. The answer is pushed by the
-// fixture over the socket, the way the real server streams a turn. ffmpeg turns the recorded video into a GIF.
-import { execFileSync } from 'node:child_process';
+// The README video: home map, a new task in a tab, Claude answering live, the palette, analytics. The answer is pushed
+// by the fixture over the socket, the way the real server streams a turn. Recorded at 60 fps through the screencast.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright';
 import type { ChatEvent } from '../../shared/contract.ts';
 import { tokens, type FixtureServer } from '../fixture-server.ts';
-import { nav, openMenu, openPage, openTab, OUT } from './page.ts';
+import { glide, glideClick, glideTo, smoothScroll } from './cursor.ts';
+import { nav, openPage, OUT } from './page.ts';
+import { record, toMp4, toWebp } from './screencast.ts';
 
 const TAB = 't2';
 const PROMPT = 'Add a dark mode toggle to the settings page';
@@ -44,37 +45,60 @@ async function streamAnswer(page: Page, fx: FixtureServer): Promise<void> {
   send(fx, { e: 'status', status: 'idle' });
 }
 
-async function play(page: Page, fx: FixtureServer): Promise<void> {
-  await page.waitForTimeout(3500);
-  await openTab(page, 'web-dashboard · dark mode');
-  await page.waitForTimeout(800);
-  const box = page.getByPlaceholder(/Message to session/);
-  await box.click();
-  await box.pressSequentially(PROMPT, { delay: 45 });
-  await page.waitForTimeout(400);
-  await box.press('Enter');
-  await streamAnswer(page, fx);
-  await page.waitForTimeout(2500);
-  await openMenu(page, 'Analytics');
-  await page.waitForTimeout(2500);
-  await nav(page).getByRole('button', { name: 'Home', exact: true }).click();
-  await page.waitForTimeout(2500);
+/** Home: a slow look over the projects and the map. */
+async function lookAround(page: Page): Promise<void> {
+  await glideTo(page, 900, 520, 10);
+  await page.waitForTimeout(900);
+  await glide(page, page.getByText('payments-api', { exact: true }).last(), 900);
+  await page.waitForTimeout(500);
+  await glide(page, page.getByText('ml-lab', { exact: true }).last(), 900);
+  await page.waitForTimeout(600);
 }
 
-/** Records the scenario and writes docs/media/demo.gif. Needs ffmpeg on PATH. */
-export async function recordGif(browser: Browser, fx: FixtureServer): Promise<void> {
+/** A tab: type a task and send it, then watch Claude work. */
+async function runTask(page: Page, fx: FixtureServer): Promise<void> {
+  await glideClick(page, nav(page).getByText('web-dashboard · dark mode', { exact: true }), 800);
+  await page.waitForTimeout(700);
+  const box = page.getByPlaceholder(/Message to session/);
+  await glideClick(page, box, 700);
+  await box.pressSequentially(PROMPT, { delay: 38 });
+  await page.waitForTimeout(300);
+  await glideClick(page, page.getByRole('button', { name: 'Send' }), 500);
+  await glideTo(page, 560, 360, 700);
+  await streamAnswer(page, fx);
+  await page.waitForTimeout(1800);
+}
+
+/** The palette to analytics, a scroll down, back home. */
+async function paletteToAnalytics(page: Page): Promise<void> {
+  await page.keyboard.press('Control+k');
+  await page.waitForTimeout(500);
+  await page.keyboard.type('analytics', { delay: 60 });
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1600);
+  await glideTo(page, 700, 500, 600);
+  await smoothScroll(page, 520, 1200);
+  await page.waitForTimeout(1200);
+  await smoothScroll(page, -520, 900);
+  await glideClick(page, nav(page).getByRole('button', { name: 'Home', exact: true }), 900);
+  await page.waitForTimeout(2200);
+}
+
+/** Records the scenario into docs/media/demo.mp4 and docs/media/demo.webp. Needs ffmpeg with libx264 and libwebp. */
+export async function recordVideo(browser: Browser, fx: FixtureServer): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'claude-os-demo-'));
-  const opened = Date.now();
-  const { page, done } = await openPage(browser, fx, dir);
-  const loaded = Date.now();
-  await play(page, fx);
-  const video = await page.video()?.path();
+  const { page, done } = await openPage(browser, fx, true);
+  await page.waitForTimeout(1500);
+  const rec = await record(page);
+  await lookAround(page);
+  await runTask(page, fx);
+  await paletteToAnalytics(page);
+  const frames = await rec.stop();
   await done();
-  if (!video) throw new Error('no video recorded');
-  // The page loads before play() starts: cut that part, keep the rest at 10 frames a second, full size.
-  const skip = String((loaded - opened) / 1000);
-  const filters = 'fps=10,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle';
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', skip, '-i', video, '-vf', filters, '-loop', '0', join(OUT, 'demo.gif')]);
+  const mp4 = join(OUT, 'demo.mp4');
+  toMp4(frames, dir, mp4);
+  toWebp(mp4, join(OUT, 'demo.webp'), 1280);
   rmSync(dir, { recursive: true, force: true });
-  console.log('gif', join(OUT, 'demo.gif'));
+  console.log('video', frames.length, 'frames ->', mp4);
 }

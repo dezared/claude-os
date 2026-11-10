@@ -2,18 +2,19 @@
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright';
 import type { FixtureServer } from '../fixture-server.ts';
+import { cursorScript } from './cursor.ts';
 import { routeDemo } from './localize.ts';
 
 export const OUT = join(import.meta.dirname, '..', '..', 'docs', 'media');
 export const VIEWPORT = { width: 1440, height: 900 };
-// The GIF is shown at its own size: a smaller window keeps the text readable without a huge file.
-export const GIF_VIEWPORT = { width: 1280, height: 800 };
+// The demo video is shown at its own size: a smaller window keeps the text readable without a huge file.
+export const DEMO_VIEWPORT = { width: 1280, height: 800 };
 
-/** A fresh English page on the demo layer: nothing remembered from the previous scene. */
-export async function openPage(browser: Browser, fx: FixtureServer, video?: string): Promise<{ page: Page; missed: Set<string>; done: () => Promise<void> }> {
-  const viewport = video ? GIF_VIEWPORT : VIEWPORT;
-  const ctx = await browser.newContext({ viewport, locale: 'en-US', deviceScaleFactor: video ? 1 : 2, ...(video ? { recordVideo: { dir: video, size: viewport } } : {}) });
+/** A fresh English page on the demo layer: nothing remembered from the previous scene. The video gets a visible pointer. */
+export async function openPage(browser: Browser, fx: FixtureServer, video = false): Promise<{ page: Page; missed: Set<string>; done: () => Promise<void> }> {
+  const ctx = await browser.newContext({ viewport: video ? DEMO_VIEWPORT : VIEWPORT, locale: 'en-US', deviceScaleFactor: video ? 1 : 2 });
   await ctx.addInitScript(() => localStorage.setItem('claude-os.lang', 'en'));
+  if (video) await ctx.addInitScript(cursorScript);
   const missed = await routeDemo(ctx);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.error('pageerror:', e.message));

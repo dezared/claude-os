@@ -33,7 +33,7 @@ export interface WikiSync {
 interface State {
   ctx: Ctx;
   store: Store;
-  // path -> sha of the content last written or handled here; '' for notes present at start, not read yet.
+  // path -> sha of the content last written or handled here, or as the start pass scanned it.
   seen: Map<string, string>;
   // Per project: the latest regeneration (an older one in slices does not write), one in slices running, another asked.
   regen: Map<string, { gen: number; running: boolean; again: boolean }>;
@@ -46,9 +46,10 @@ function vaultNoteOf(vault: string, path: string): { key: string; file: string }
   return parts[1].toLowerCase().endsWith('.md') ? { key: parts[0], file: parts[1] } : null;
 }
 
-// The vault's project notes as the start pass found them: listed again by the scanner, not read here.
+// The vault's project notes as the start pass found them, with the scanner's sha: not read again here.
+// A change event for a note the start pass already saw unchanged is no change (macOS replays recent writes to a new watch).
 function notesAtStart(s: State): void {
-  for (const n of s.store.noteFiles()) if (n.vaultKey !== null && n.dir === null && !s.seen.has(n.path)) s.seen.set(n.path, '');
+  for (const n of s.store.noteFiles()) if (n.vaultKey !== null && n.dir === null && !s.seen.has(n.path)) s.seen.set(n.path, n.sha);
 }
 
 function writeOwn(s: State, path: string, text: string, backup: boolean): boolean {

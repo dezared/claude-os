@@ -32,6 +32,21 @@ Open that link once. It sets a cookie for this browser; after that, `http://127.
 
 The server keeps running after you close the browser: sessions live in the server process, so a long task finishes even with no window open.
 
+## macOS
+
+The server runs natively on macOS (tested on Apple Silicon, macOS 14) and the panel opens in the browser. Install Node.js (from nodejs.org or `brew install node`), git (the Xcode command line tools are enough) and Claude Code, then install and build as above.
+
+To start without a terminal, double-click **`Claude OS.command`** in the repository folder. It starts the server when it is not running, writes its output to `data/server.log`, and opens the panel with the login link. The server keeps running when that Terminal window closes; restart or stop it from the panel's menu. If the repository came as a downloaded zip, macOS may refuse to open the file the first time: right-click it, choose Open, and confirm once.
+
+What is different from WSL:
+
+- **Terminals** open in Terminal.app: the Terminal action, "claude --resume" and `claude mcp login` run in a new Terminal window. The first time, macOS asks whether the server may control Terminal; allow it, or the button does nothing (System Settings, Privacy & Security, Automation).
+- **Reveal** shows the file selected in Finder.
+- **IDEs and Obsidian** are found as apps in `/Applications` and `~/Applications` (JetBrains Toolbox installs there) and on `PATH`, and open through `open -a`.
+- **Claude Code** is found on `PATH`, in `~/.local/bin` and `~/.claude/local` (the installer) and in `/opt/homebrew/bin` and `/usr/local/bin` (Homebrew), so a server started from Finder finds it too.
+- **Notifications**: there is no desktop app, so they come from the browser. In Settings, General, Notifications, press "Allow" once; after that a "done" or "your answer is needed" from Claude shows as a macOS notification while the tab is in the background. macOS may also need the browser allowed under System Settings, Notifications.
+- **Actions and widgets** run in `bash -c` with the bash macOS ships (3.2): write their commands without bash 4 features such as `mapfile`, `${var,,}` or associative arrays.
+
 ## First run
 
 The home screen offers a setup:

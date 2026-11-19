@@ -18,7 +18,7 @@
 
 ![Windows + WSL2](https://img.shields.io/badge/Windows_+_WSL2-supported-0078D4?style=flat-square&logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-beta-FCC624?style=flat-square&logo=linux&logoColor=black)
-![macOS](https://img.shields.io/badge/macOS-experimental-8e8e93?style=flat-square&logo=apple&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-supported-8e8e93?style=flat-square&logo=apple&logoColor=white)
 
 <br>
 
@@ -85,7 +85,7 @@ The server prints a link like `http://127.0.0.1:47821/auth?token=...`. **Open it
 On the first start the home screen offers a **short setup**: it checks the environment (Claude Code found and logged in, Node and git versions, limits), then Claude asks a few questions (your name, reply language, how often to ask) and saves your profile. You can stop and continue later.
 
 > [!TIP]
-> On Windows, install everything **inside WSL2** and build the optional desktop app with `node desktop/build.mjs`. More in [Getting started](docs/guide/getting-started.md): environment variables, updating, troubleshooting.
+> On Windows, install everything **inside WSL2** and build the optional desktop app with `node desktop/build.mjs`. On macOS, after the first `npm install`, double-click `Claude OS.command` in Finder to start the server and open the panel. More in [Getting started](docs/guide/getting-started.md): environment variables, updating, troubleshooting.
 
 ## 💻 Supported platforms
 
@@ -93,7 +93,7 @@ On the first start the home screen offers a **short setup**: it checks the envir
 | --- | --- | --- |
 | **Windows 10/11 + WSL2** | ✅ Supported | The main platform. The server runs inside WSL; an optional desktop app (Electron) opens it as a Windows window, and terminals, IDEs and Explorer open on the Windows side. |
 | **Linux** | 🧪 Beta | The web panel works in any browser. Desktop integrations fall back to `x-terminal-emulator` and `xdg-open`. |
-| **macOS** | 🧪 Experimental | The web panel runs; the desktop app is Windows-only for now. Reports welcome. |
+| **macOS** | ✅ Supported (browser) | The server runs natively; the panel is in the browser. Terminals open in Terminal.app, files in Finder, IDEs and Obsidian from `/Applications`; double-click `Claude OS.command` to start without a terminal. No desktop app yet. Tested on Apple Silicon, macOS 14. |
 | **Windows without WSL** | ⏳ Not yet | The platform layer has a place for it, but it is untested. |
 
 The goal is **every major OS with a native desktop app**. Platform-specific code lives in one module (`server/tools/platform.ts`), so a port touches little else.

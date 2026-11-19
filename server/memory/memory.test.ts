@@ -364,6 +364,7 @@ test('graph nodes carry lint issue codes for vault notes only', async () => {
 test('a new file in a memory dir invalidates memory; journals beside it do not', async () => {
   const dir = join(kit.paths.claudeDir, 'projects', '-p');
   kit.write(join(dir, 'memory', 'a.md'), 'a');
+  await new Promise((r) => setTimeout(r, 300)); // macOS delivers a write made just before a watch starts to that watch
   registerMemory(kit.ctx);
   await new Promise((r) => setTimeout(r, 300)); // chokidar scan
   kit.write(join(dir, 'x.jsonl'), '{}');

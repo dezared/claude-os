@@ -50,9 +50,9 @@ async function read(cwd: string, args: string[], maxBuffer = MAX_BUFFER): Promis
   return stdout;
 }
 
-async function write(cwd: string, args: string[], timeout = 120_000): Promise<string> {
+async function write(cwd: string, args: string[], timeout = 120_000, literal = true): Promise<string> {
   try {
-    const { stdout, stderr } = await run('git', ['--no-pager', '--literal-pathspecs', '-C', cwd, ...args], { env: WRITE_ENV, timeout, maxBuffer: MAX_BUFFER, encoding: 'utf8' });
+    const { stdout, stderr } = await run('git', ['--no-pager', ...(literal ? ['--literal-pathspecs'] : []), '-C', cwd, ...args], { env: WRITE_ENV, timeout, maxBuffer: MAX_BUFFER, encoding: 'utf8' });
     return (stdout + stderr).trim();
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string; message: string };
@@ -449,7 +449,8 @@ export async function gitStashList(cwd: string): Promise<GitStash[]> {
 
 export async function gitStashPush(cwd: string, message: unknown, untracked: unknown): Promise<string> {
   if (typeof message !== 'string' || !message.trim() || message.length > 500) throw httpError(400, 'a stash message is required');
-  return write(await needRoot(cwd), ['stash', 'push', ...(untracked === true ? ['--include-untracked'] : []), '-m', message]);
+  // No pathspec here, so no --literal-pathspecs: with it git 2.39 (the one macOS ships) saves untracked files but leaves them in place.
+  return write(await needRoot(cwd), ['stash', 'push', ...(untracked === true ? ['--include-untracked'] : []), '-m', message], undefined, false);
 }
 
 export async function gitStashPop(cwd: string, ref: unknown): Promise<string> {

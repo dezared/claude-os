@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -10,7 +10,8 @@ import Fastify from 'fastify';
 import type { Analytics, ChatEvent, IndexStatus, Overview, Project, SessionInfo } from '../../shared/contract.ts';
 import type { BusEvents, Ctx, Paths } from '../context.ts';
 import { createJournal, hiddenRoot } from './index.ts';
-import { computeLive, mapStatus, procStartOf, type RegistryEntry } from './live.ts';
+import { computeLive, isClaudeProcess, mapStatus, parentPidOf, procStartOf, type RegistryEntry } from './live.ts';
+import { HAS_PROC, parsePs } from './ps.ts';
 import { KNOWN_TYPES, LineSplitter, parseLine, parseRecord, parseTitles, parseToolCalls, parseUsage, readTranscript, recordToChatEvents } from './parse.ts';
 import { createProjects } from './projects.ts';
 import { initSchema } from './db.ts';
@@ -24,7 +25,8 @@ const assistant = (id: string, usage: object | null, extra: object = {}, content
 const usage = (i: number, o: number, w: number, r: number) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: w, cache_read_input_tokens: r });
 const lines = (...recs: unknown[]) => recs.map((r) => JSON.stringify(r)).join('\n') + '\n';
 
-function tmp() { return mkdtempSync(join(tmpdir(), 'journal-test-')); }
+// Real path: on macOS the temp dir is a symlink, and git reports roots resolved.
+function tmp() { return realpathSync(mkdtempSync(join(tmpdir(), 'journal-test-'))); }
 
 describe('parse', () => {
   it('usage skips synthetic and reads every field', () => {
@@ -142,10 +144,26 @@ describe('live status', () => {
     assert.deepEqual(['busy', 'idle', 'blocked', 'waiting_permission', undefined].map((s) => mapStatus(s)), ['working', 'idle', 'blocked', 'waiting_permission', 'idle']);
   });
 
-  it('procStartOf reads the real field 22 of this process', () => {
-    const expected = execFileSync('sh', ['-c', `awk '{print $22}' /proc/${process.pid}/stat`], { encoding: 'utf8' }).trim();
+  it('procStartOf reads the real field 22 of this process, or its UTC start time from ps without /proc', () => {
+    const expected = HAS_PROC
+      ? execFileSync('sh', ['-c', `awk '{print $22}' /proc/${process.pid}/stat`], { encoding: 'utf8' }).trim()
+      : execFileSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } }).trim();
     assert.equal(procStartOf(process.pid), expected);
     assert.equal(procStartOf(2 ** 30), null);
+  });
+
+  it('the parent and the command of a real process are read on every platform', () => {
+    assert.equal(parentPidOf(process.pid), process.ppid);
+    assert.equal(parentPidOf(2 ** 30), null);
+    assert.equal(isClaudeProcess(process.pid), process.argv.join(' ').toLowerCase().includes('claude'));
+  });
+
+  it('ps rows parse with a padded day, a zombie state and spaces in the command', () => {
+    const rows = parsePs('  101     1 Ss   Mon Nov  9 14:17:59 2026     claude --resume x\n  102   101 Z    Thu Nov 19 09:37:44 2026     (node)\nnoise\n');
+    assert.deepEqual(rows, [
+      { pid: 101, ppid: 1, zombie: false, start: 'Mon Nov  9 14:17:59 2026', command: 'claude --resume x' },
+      { pid: 102, ppid: 101, zombie: true, start: 'Thu Nov 19 09:37:44 2026', command: '(node)' },
+    ]);
   });
 });
 

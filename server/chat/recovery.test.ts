@@ -1,11 +1,12 @@
 // What survives a restart or a reboot: temp dirs and the fake CLI only.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import type { ChatEvent, RecoveryItem, SessionInfo, Tab } from '../../shared/contract.ts';
 import { startServer, waitUntil, type TestServer } from './fixtures/harness.ts';
+import { procStartOf } from '../journal/live.ts';
 
 const REPO = resolve(import.meta.dirname, '../..');
 type TabItem = Extract<RecoveryItem, { kind: 'tab' }>;
@@ -203,8 +204,7 @@ describe('sessions of a plain terminal', () => {
       const cwd = mkdtempSync(join(srv.dir, 'term-'));
       const id = crypto.randomUUID();
       journalOf(srv, id, cwd);
-      const stat = readFileSync(`/proc/${sleeper.pid}/stat`, 'latin1');
-      const procStart = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+      const procStart = procStartOf(sleeper.pid!);
       registryFile(srv, sleeper.pid!, { sessionId: id, cwd, procStart });
       await waitUntil(async () => (await srv.api<SessionInfo[]>('GET', '/api/sessions?live=1')).body.some((s) => s.id === id), 'the session is seen running', 15_000);
       assert.deepEqual(await recovery(srv), [], 'alive: nothing to recover');
@@ -282,8 +282,7 @@ describe('a restart from the stale server bar', () => {
     const sleeper = spawn('sleep', ['60'], { stdio: 'ignore' });
     try {
       const { tab, sessionId } = await midTurn(srv, []);
-      const stat = readFileSync(`/proc/${sleeper.pid}/stat`, 'latin1');
-      registryFile(srv, sleeper.pid!, { sessionId, cwd: (await srv.api<Tab[]>('GET', '/api/tabs')).body.find((t) => t.id === tab.id)!.cwd, procStart: stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] });
+      registryFile(srv, sleeper.pid!, { sessionId, cwd: (await srv.api<Tab[]>('GET', '/api/tabs')).body.find((t) => t.id === tab.id)!.cwd, procStart: procStartOf(sleeper.pid!) });
       const first = await pidOf(srv);
       assert.equal((await srv.api('POST', '/api/app/restart')).status, 200);
       await waitUntil(async () => ![0, first].includes(await pidOf(srv)), 'the new process answers', 20_000);
@@ -303,8 +302,7 @@ describe('a restart from the stale server bar', () => {
     const sleeper = spawn('sleep', ['60'], { stdio: 'ignore' });
     try {
       const { tab, sessionId } = await midTurn(srv, []);
-      const stat = readFileSync(`/proc/${sleeper.pid}/stat`, 'latin1');
-      registryFile(srv, sleeper.pid!, { sessionId, cwd: (await srv.api<Tab[]>('GET', '/api/tabs')).body.find((t) => t.id === tab.id)!.cwd, procStart: stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] });
+      registryFile(srv, sleeper.pid!, { sessionId, cwd: (await srv.api<Tab[]>('GET', '/api/tabs')).body.find((t) => t.id === tab.id)!.cwd, procStart: procStartOf(sleeper.pid!) });
       const first = await pidOf(srv);
       assert.equal((await srv.api('POST', '/api/app/restart')).status, 200);
       await waitUntil(async () => ![0, first].includes(await pidOf(srv)), 'the new process answers', 20_000);

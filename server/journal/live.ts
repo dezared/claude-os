@@ -1,8 +1,9 @@
-// Who is alive right now: the sessions/ registry verified against /proc, plus `claude agents --json`.
+// Who is alive right now: the sessions/ registry verified against /proc (ps on macOS), plus `claude agents --json`.
 import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionStatus } from '../../shared/contract.ts';
+import { HAS_PROC, psAll, psOf } from './ps.ts';
 
 export interface RegistryEntry {
   pid: number;
@@ -56,7 +57,12 @@ function normalizeKind(kind: string | undefined, entrypoint?: string): string | 
 }
 
 // Field 22 of /proc/<pid>/stat, null for a dead pid or a zombie. comm may hold spaces and parens, so count from the last ')'.
+// Without /proc it is what Claude Code itself writes there on macOS: the start time as ps prints it in UTC.
 export function procStartOf(pid: number): string | null {
+  if (!HAS_PROC) {
+    const p = psOf(pid);
+    return p && !p.zombie ? p.start : null;
+  }
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'latin1');
     const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
@@ -68,6 +74,7 @@ export function procStartOf(pid: number): string | null {
 
 // Field 4 of /proc/<pid>/stat, null when it cannot be read.
 export function parentPidOf(pid: number, procDir = '/proc'): number | null {
+  if (!HAS_PROC && procDir === '/proc') return psOf(pid)?.ppid ?? null;
   try {
     const stat = readFileSync(`${procDir}/${pid}/stat`, 'latin1');
     return Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
@@ -101,8 +108,9 @@ export async function endProcess(ref: ProcRef, graceMs: number): Promise<void> {
   for (let waited = 0; waited < 1000 && sameProcess(ref); waited += 20) await pause(20);
 }
 
-/** The claude processes among the children of `parent`. None where there is no /proc. */
+/** The claude processes among the children of `parent`. */
 export function claudeChildren(parent: number, procDir = '/proc'): number[] {
+  if (!HAS_PROC && procDir === '/proc') return psAll().filter((p) => p.ppid === parent && !p.zombie && isClaudeCommand(p.command)).map((p) => p.pid);
   let names: string[];
   try { names = readdirSync(procDir); } catch { return []; }
   return names.filter((d) => /^\d+$/.test(d)).map(Number)
@@ -136,9 +144,12 @@ export function readRegistry(claudeDir: string): RegistryEntry[] {
 export const ignoredSessions = new Set<string>();
 
 // A pid the agents view reports has no procStart to check against: a reused one at least is not running claude.
+const isClaudeCommand = (command: string) => command.toLowerCase().includes('claude');
+
 export function isClaudeProcess(pid: number): boolean {
+  if (!HAS_PROC) return isClaudeCommand(psOf(pid)?.command ?? '');
   try {
-    return readFileSync(`/proc/${pid}/cmdline`, 'latin1').toLowerCase().includes('claude');
+    return isClaudeCommand(readFileSync(`/proc/${pid}/cmdline`, 'latin1'));
   } catch {
     return false;
   }

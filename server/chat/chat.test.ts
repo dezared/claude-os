@@ -639,8 +639,7 @@ describe('chat over the fake claude', () => {
     const endedId = '22222222-2222-4222-8222-222222222222';
     const sessionsDir = join(srv.configDir, 'sessions');
     mkdirSync(sessionsDir, { recursive: true });
-    const stat = readFileSync(`/proc/${process.pid}/stat`, 'latin1');
-    const procStart = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+    const procStart = procStartOf(process.pid);
     writeFileSync(join(sessionsDir, `${process.pid}.json`), JSON.stringify({ pid: process.pid, procStart, sessionId: liveId, cwd: workDir, status: 'idle', kind: 'interactive', updatedAt: Date.now() }));
     const encoded = workDir.replace(/[^a-zA-Z0-9]/g, '-');
     const journalDir = join(srv.configDir, 'projects', encoded);
@@ -801,8 +800,7 @@ describe('a terminal holding the session of a closed tab', () => {
       await client.waitEvent(tab.id, 'result');
       const { sessionId } = (await srv.api<Tab[]>('GET', '/api/tabs')).body.find((t) => t.id === tab.id)!;
       // The newest entry of the session is the terminal's: a pid taken from the registry alone would be that one.
-      const stat = readFileSync(`/proc/${terminal.pid}/stat`, 'latin1');
-      writeFileSync(join(srv.configDir, 'sessions', `${terminal.pid}.json`), JSON.stringify({ pid: terminal.pid, procStart: stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19], sessionId, cwd: workDir, status: 'idle', kind: 'interactive', updatedAt: Date.now() + 60_000 }));
+      writeFileSync(join(srv.configDir, 'sessions', `${terminal.pid}.json`), JSON.stringify({ pid: terminal.pid, procStart: procStartOf(terminal.pid!), sessionId, cwd: workDir, status: 'idle', kind: 'interactive', updatedAt: Date.now() + 60_000 }));
 
       assert.equal((await srv.api('DELETE', `/api/tabs/${tab.id}`)).status, 200);
       const reopened = await srv.api<{ key: string }>('POST', '/api/tabs', { resumeSessionId: sessionId, cwd: workDir });

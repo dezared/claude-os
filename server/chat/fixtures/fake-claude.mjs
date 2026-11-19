@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { procStartOf } from '../../journal/live.ts';
 
 const argv = process.argv.slice(2);
 const log = (entry) => { if (process.env.FAKE_CLAUDE_LOG) appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify(entry) + '\n'); };
@@ -103,8 +104,7 @@ const base = () => ({ uuid: randomUUID(), session_id: sessionId });
 // FAKE_CLAUDE_REGISTRY: the entry the real CLI keeps in sessions/ while it runs. FAKE_CLAUDE_LINGER_MS: how long it
 // stays after its input closes or a SIGTERM, as a real one busy finishing its work.
 if (process.env.FAKE_CLAUDE_REGISTRY) {
-  const stat = readFileSync(`/proc/${process.pid}/stat`, 'latin1');
-  const procStart = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  const procStart = procStartOf(process.pid);
   const dir = join(process.env.CLAUDE_CONFIG_DIR ?? '/nonexistent', 'sessions');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${process.pid}.json`), JSON.stringify({ pid: process.pid, procStart, sessionId, cwd, status: 'idle', kind: 'interactive', entrypoint: 'sdk-ts', startedAt: Date.now(), updatedAt: Date.now() }));

@@ -95,6 +95,9 @@ test('resolveClaudeBin order', () => {
   assert.equal(resolveClaudeBin({ ...win, exists: (p) => p === 'C:\\b\\claude.exe' || p === 'C:\\b\\claude.cmd' }), 'C:\\b\\claude.exe');
   assert.equal(resolveClaudeBin({ ...base, exists: (p) => p === '/a/claude.exe' }), '/h/.local/bin/claude', 'claude.exe counts on win32 only');
   assert.equal(resolveClaudeBin({ ...win, exists: () => false }), 'C:\\h\\.local\\bin\\claude.exe');
+  assert.equal(resolveClaudeBin({ ...base, exists: (p) => p === '/h/.claude/local/claude' }), '/h/.claude/local/claude', 'the installer folders count after PATH');
+  assert.equal(resolveClaudeBin({ ...base, exists: (p) => p === '/opt/homebrew/bin/claude' }), '/h/.local/bin/claude', 'Homebrew counts on macOS only');
+  assert.equal(resolveClaudeBin({ ...base, platform: 'darwin', exists: (p) => p === '/opt/homebrew/bin/claude' }), '/opt/homebrew/bin/claude');
 });
 
 test('create_project: only in the folder the user named, no default', async () => {

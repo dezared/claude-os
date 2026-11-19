@@ -13,7 +13,7 @@ import { ignoredSessions } from '../journal/live.ts';
 import { httpError, parseFrontmatter, safely, sha256, wslDistro } from '../memory/util.ts';
 import { launchDetached } from './ide.ts';
 import type { createMcp } from './mcp.ts';
-import { platformKind, type PlatformKind } from './platform.ts';
+import { macTerminalArgv, platformKind, type PlatformKind } from './platform.ts';
 import { maskValue } from './setup.ts';
 import { installedPlugins, knownProjects, readClaudeJson, readJson } from './shared.ts';
 import { validateCwd } from './actions.ts';
@@ -119,7 +119,7 @@ function toolInfo(t: { name: string; description?: string; annotations?: { readO
 export function mcpLoginArgv(kind: PlatformKind, cwd: string, claudeBin: string, name: string, distro: string): { bin: string; args: string[] } | null {
   if (kind === 'wsl') return { bin: 'wt.exe', args: ['wsl.exe', '-d', distro, '--cd', cwd, '--', claudeBin, 'mcp', 'login', name] };
   if (kind === 'windows') return { bin: 'wt.exe', args: ['-d', cwd, claudeBin, 'mcp', 'login', name] };
-  return null;
+  return kind === 'mac' ? macTerminalArgv(cwd, [claudeBin, 'mcp', 'login', name]) : null;
 }
 
 /** Straight extrapolation of a usage window. Too early in the window, the pace means nothing. */

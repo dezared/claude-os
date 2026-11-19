@@ -567,8 +567,8 @@ export interface IdeEntry {
   catalogId: string; // phpstorm, vscode...
   name: string;
   family: IdeFamily;
-  exe: string; // Windows path or Linux path
-  side: 'windows' | 'linux';
+  exe: string; // Windows path, Linux path, or a macOS app bundle (.app)
+  side: 'windows' | 'linux'; // linux: the server's own side, macOS included
   source: string; // path, app_paths, uninstall, vswhere, toolbox, known, manual
   approved: boolean; // every scan result is; an entry someone else wrote into the config waits for a click
 }

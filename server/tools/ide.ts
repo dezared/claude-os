@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { readdirSync } from 'node:fs';
-import { basename } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import type { IdeEntry, IdeFamily, ProjectIde } from '../../shared/contract.ts';
 import { httpError, safely, sha256, wslDistro } from '../memory/util.ts';
 import { findOnPath, platformKind, scanObsidianWindows, scanWindows, toLinuxPath, toWindowsPath, type PlatformKind, type WindowsScan } from './platform.ts';
@@ -11,19 +12,20 @@ interface CatalogItem {
   family: IdeFamily;
   exe: string[]; // Windows executable names
   linux: string[]; // names on a Linux PATH
+  mac?: string[]; // macOS app bundles, without .app
   uninstall?: RegExp; // DisplayName in the registry
   known?: string[]; // known install paths, with %VARS%
 }
 
 const jb = (id: string, name: string, exe: string, linux: string): CatalogItem => ({
-  id, name, family: 'jetbrains', exe: [exe], linux: [linux, `${linux}.sh`], uninstall: new RegExp(`^${name}\\b`, 'i'),
+  id, name, family: 'jetbrains', exe: [exe], linux: [linux, `${linux}.sh`], mac: [name, `${name} CE`], uninstall: new RegExp(`^${name}\\b`, 'i'),
 });
 
 export const CATALOG: CatalogItem[] = [
-  { id: 'vscode', name: 'VS Code', family: 'vscode', exe: ['Code.exe'], linux: ['code'], uninstall: /^Microsoft Visual Studio Code(?! Insiders)/i, known: ['%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe', '%ProgramFiles%\\Microsoft VS Code\\Code.exe'] },
-  { id: 'vscode-insiders', name: 'VS Code Insiders', family: 'vscode', exe: ['Code - Insiders.exe'], linux: ['code-insiders'], uninstall: /^Microsoft Visual Studio Code Insiders/i, known: ['%LOCALAPPDATA%\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe'] },
-  { id: 'cursor', name: 'Cursor', family: 'vscode', exe: ['Cursor.exe'], linux: ['cursor'], uninstall: /^Cursor\b/i, known: ['%LOCALAPPDATA%\\Programs\\cursor\\Cursor.exe'] },
-  { id: 'windsurf', name: 'Windsurf', family: 'vscode', exe: ['Windsurf.exe'], linux: ['windsurf'], uninstall: /^Windsurf\b/i, known: ['%LOCALAPPDATA%\\Programs\\Windsurf\\Windsurf.exe'] },
+  { id: 'vscode', name: 'VS Code', family: 'vscode', exe: ['Code.exe'], linux: ['code'], mac: ['Visual Studio Code'], uninstall: /^Microsoft Visual Studio Code(?! Insiders)/i, known: ['%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe', '%ProgramFiles%\\Microsoft VS Code\\Code.exe'] },
+  { id: 'vscode-insiders', name: 'VS Code Insiders', family: 'vscode', exe: ['Code - Insiders.exe'], linux: ['code-insiders'], mac: ['Visual Studio Code - Insiders'], uninstall: /^Microsoft Visual Studio Code Insiders/i, known: ['%LOCALAPPDATA%\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe'] },
+  { id: 'cursor', name: 'Cursor', family: 'vscode', exe: ['Cursor.exe'], linux: ['cursor'], mac: ['Cursor'], uninstall: /^Cursor\b/i, known: ['%LOCALAPPDATA%\\Programs\\cursor\\Cursor.exe'] },
+  { id: 'windsurf', name: 'Windsurf', family: 'vscode', exe: ['Windsurf.exe'], linux: ['windsurf'], mac: ['Windsurf'], uninstall: /^Windsurf\b/i, known: ['%LOCALAPPDATA%\\Programs\\Windsurf\\Windsurf.exe'] },
   { id: 'visualstudio', name: 'Visual Studio', family: 'visualstudio', exe: ['devenv.exe'], linux: [] },
   jb('phpstorm', 'PhpStorm', 'phpstorm64.exe', 'phpstorm'),
   jb('idea', 'IntelliJ IDEA', 'idea64.exe', 'idea'),
@@ -35,9 +37,9 @@ export const CATALOG: CatalogItem[] = [
   jb('rubymine', 'RubyMine', 'rubymine64.exe', 'rubymine'),
   jb('datagrip', 'DataGrip', 'datagrip64.exe', 'datagrip'),
   jb('rustrover', 'RustRover', 'rustrover64.exe', 'rustrover'),
-  { id: 'android-studio', name: 'Android Studio', family: 'jetbrains', exe: ['studio64.exe'], linux: ['studio', 'studio.sh'], uninstall: /^Android Studio/i, known: ['%ProgramFiles%\\Android\\Android Studio\\bin\\studio64.exe'] },
-  { id: 'zed', name: 'Zed', family: 'plain', exe: ['Zed.exe'], linux: ['zed'], uninstall: /^Zed\b/i, known: ['%LOCALAPPDATA%\\Programs\\Zed\\Zed.exe'] },
-  { id: 'sublime', name: 'Sublime Text', family: 'plain', exe: ['sublime_text.exe'], linux: ['subl'], uninstall: /^Sublime Text/i, known: ['%ProgramFiles%\\Sublime Text\\sublime_text.exe', '%ProgramFiles%\\Sublime Text 3\\sublime_text.exe'] },
+  { id: 'android-studio', name: 'Android Studio', family: 'jetbrains', exe: ['studio64.exe'], linux: ['studio', 'studio.sh'], mac: ['Android Studio'], uninstall: /^Android Studio/i, known: ['%ProgramFiles%\\Android\\Android Studio\\bin\\studio64.exe'] },
+  { id: 'zed', name: 'Zed', family: 'plain', exe: ['Zed.exe'], linux: ['zed'], mac: ['Zed'], uninstall: /^Zed\b/i, known: ['%LOCALAPPDATA%\\Programs\\Zed\\Zed.exe'] },
+  { id: 'sublime', name: 'Sublime Text', family: 'plain', exe: ['sublime_text.exe'], linux: ['subl'], mac: ['Sublime Text'], uninstall: /^Sublime Text/i, known: ['%ProgramFiles%\\Sublime Text\\sublime_text.exe', '%ProgramFiles%\\Sublime Text 3\\sublime_text.exe'] },
   { id: 'notepadpp', name: 'Notepad++', family: 'plain', exe: ['notepad++.exe'], linux: [], uninstall: /^Notepad\+\+/i, known: ['%ProgramFiles%\\Notepad++\\notepad++.exe', '%ProgramFiles(x86)%\\Notepad++\\notepad++.exe'] },
 ];
 
@@ -91,6 +93,45 @@ export function resolveLinuxIdes(hits: { name: string; path: string }[], windows
   return [...out, ...windows.filter((w) => !(w.family === 'vscode' && wrapped.has(w.catalogId)))];
 }
 
+const MAC_APP_DIRS = () => ['/Applications', join(homedir(), 'Applications')];
+
+/** The app bundles in the folders, and one level down: suites and installers keep theirs in a subfolder. */
+export function listMacApps(dirs = MAC_APP_DIRS()): string[] {
+  const out: string[] = [];
+  for (const dir of dirs) {
+    for (const d of safely(() => readdirSync(dir, { withFileTypes: true }), [])) {
+      if (!d.isDirectory()) continue;
+      if (d.name.endsWith('.app')) out.push(join(dir, d.name));
+      else for (const sub of safely(() => readdirSync(join(dir, d.name)), [])) if (sub.endsWith('.app')) out.push(join(dir, d.name, sub));
+    }
+  }
+  return out;
+}
+
+const appName = (p: string) => basename(p).replace(/\.app$/, '');
+
+// Pure: an app bundle first, a command on PATH for an editor that has no bundle.
+export function resolveMacIdes(apps: string[], hits: { name: string; path: string }[]): IdeEntry[] {
+  const out: IdeEntry[] = [];
+  for (const c of CATALOG) {
+    const app = apps.find((p) => c.mac?.includes(appName(p)));
+    if (app) out.push(entry(c, app, 'linux', 'applications'));
+  }
+  return [...out, ...resolveLinuxIdes(hits, []).filter((e) => !out.some((o) => o.catalogId === e.catalogId))];
+}
+
+const macObsidian = (apps = listMacApps()) => apps.find((p) => appName(p) === 'Obsidian') ?? findOnPath(['obsidian'])[0]?.path ?? null;
+
+/** Where Obsidian keeps its list of vaults, next to the program it was found as. */
+export function obsidianVaultsFile(bin: string, kind: PlatformKind, home = homedir()): string {
+  if (kind === 'mac') return join(home, 'Library', 'Application Support', 'obsidian', 'obsidian.json');
+  if (kind === 'linux') return join(home, '.config', 'obsidian', 'obsidian.json');
+  return join(dirname(dirname(dirname(dirname(bin)))), 'Roaming', 'obsidian', 'obsidian.json');
+}
+
+/** A program with arguments: a macOS app bundle is a folder and starts through `open -a`. */
+export const programArgv = (exe: string, args: string[]): { bin: string; args: string[] } => (exe.endsWith('.app') ? { bin: 'open', args: ['-a', exe, ...args] } : { bin: exe, args });
+
 // A registered obsidian:// handler counts only if its program is still there.
 export function obsidianState(scan: Pick<WindowsScan, 'files' | 'obsidianHandler'>): { installed: boolean; exe: string | null } {
   const exe = scan.files.find((f) => /obsidian\.exe$/i.test(f)) ?? (scan.obsidianHandler?.exists ? scan.obsidianHandler.exe : null);
@@ -101,6 +142,11 @@ export interface IdeScan { ides: IdeEntry[]; obsidianInstalled: boolean | null; 
 
 export async function scanIdes(kind: PlatformKind = platformKind()): Promise<IdeScan> {
   const linuxHits = kind === 'windows' ? [] : findOnPath(CATALOG.flatMap((c) => c.linux));
+  if (kind === 'mac') {
+    const apps = listMacApps();
+    const found = macObsidian(apps);
+    return { ides: resolveMacIdes(apps, linuxHits), obsidianInstalled: found !== null, obsidianExe: found };
+  }
   if (kind !== 'wsl' && kind !== 'windows') {
     const found = findOnPath(['obsidian'])[0]?.path ?? null;
     return { ides: resolveLinuxIdes(linuxHits, []), obsidianInstalled: found !== null, obsidianExe: found };
@@ -114,7 +160,7 @@ export async function scanIdes(kind: PlatformKind = platformKind()): Promise<Ide
 /** Obsidian alone: fast enough to repeat while the notice is on screen. Same rule as the full scan. */
 export async function probeObsidian(kind: PlatformKind = platformKind()): Promise<{ installed: boolean; exe: string | null }> {
   if (kind !== 'wsl' && kind !== 'windows') {
-    const exe = findOnPath(['obsidian'])[0]?.path ?? null;
+    const exe = kind === 'mac' ? macObsidian() : findOnPath(['obsidian'])[0]?.path ?? null;
     return { installed: exe !== null, exe };
   }
   return obsidianState(await scanObsidianWindows(OBSIDIAN_KNOWN));
@@ -153,7 +199,7 @@ export function projectIde(root: string, list: IdeEntry[], chosen: string | null
 }
 
 export function ideArgv(e: Pick<IdeEntry, 'exe' | 'side' | 'family'>, target: string, opts: { kind: PlatformKind; distro?: string; toWin?: (p: string) => string; toLinux?: (p: string) => string; isFile?: boolean }): { bin: string; args: string[] } {
-  if (e.side === 'linux' || opts.kind !== 'wsl') return { bin: e.exe, args: [target] };
+  if (e.side === 'linux' || opts.kind !== 'wsl') return programArgv(e.exe, [target]);
   const bin = (opts.toLinux ?? toLinuxPath)(e.exe);
   if (e.family === 'vscode') {
     const uri = `vscode-remote://wsl+${opts.distro ?? wslDistro()}${encodeURI(target)}`;
@@ -171,4 +217,9 @@ export function launchDetached(bin: string, args: string[], cwd?: string): Promi
       resolve();
     });
   });
+}
+
+export function launchProgram(exe: string, args: string[]): Promise<void> {
+  const argv = programArgv(exe, args);
+  return launchDetached(argv.bin, argv.args);
 }

@@ -16,9 +16,9 @@ import { makeKit, type TestKit } from '../memory/testkit.ts';
 import { limitWindows } from './account.ts';
 import { toCommandInfo } from './commands.ts';
 import { gitCommit, gitCommitDiff, gitCommitFiles, gitDiff, gitPush, gitPushPreview, gitStage, gitStatus, gitUnstage, parseStatusV2, validateRepoPath, validateSha } from './git.ts';
-import { chooseIde, ideArgv, obsidianState, projectIde, resolveLinuxIdes, resolveWindowsIdes } from './ide.ts';
+import { chooseIde, ideArgv, listMacApps, obsidianState, obsidianVaultsFile, projectIde, resolveLinuxIdes, resolveMacIdes, resolveWindowsIdes } from './ide.ts';
 import { registerTools } from './index.ts';
-import { windowsScanScript, shellArgv } from './platform.ts';
+import { windowsScanScript, macTerminalArgv, resumeArgv, shellArgv, shellWord } from './platform.ts';
 import { maskValue, restoreMasked } from './setup.ts';
 import { createSettings } from './settings.ts';
 import { createApprovals } from './approvals.ts';
@@ -281,9 +281,34 @@ describe('IDEs', () => {
     assert.deepEqual(ideArgv({ exe: 'C:\\VSC\\Code.exe', side: 'windows', family: 'vscode' }, 'C:\\x', { kind: 'windows' }), { bin: 'C:\\VSC\\Code.exe', args: ['C:\\x'] });
   });
 
+  it('macOS: app bundles in the folders and one level down, a bundle wins over PATH and opens through open -a', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mac-apps-'));
+    for (const app of ['Visual Studio Code.app', 'Notes.app', 'JetBrains/PyCharm CE.app']) mkdirSync(join(dir, app), { recursive: true });
+    const apps = listMacApps([dir, join(dir, 'missing')]);
+    assert.deepEqual(apps.map((p) => p.slice(dir.length + 1)).sort(), ['JetBrains/PyCharm CE.app', 'Notes.app', 'Visual Studio Code.app']);
+    const ides = resolveMacIdes(apps, [{ name: 'code', path: '/usr/local/bin/code' }, { name: 'zed', path: '/usr/local/bin/zed' }]);
+    assert.deepEqual(ides.map((e) => [e.catalogId, e.exe.replace(dir, ''), e.source]), [
+      ['vscode', '/Visual Studio Code.app', 'applications'], ['pycharm', '/JetBrains/PyCharm CE.app', 'applications'], ['zed', '/usr/local/bin/zed', 'path'],
+    ]);
+    assert.deepEqual(ideArgv(ides[0], '/p', { kind: 'mac' }), { bin: 'open', args: ['-a', ides[0].exe, '/p'] });
+    assert.deepEqual(ideArgv(ides[2], '/p', { kind: 'mac' }), { bin: '/usr/local/bin/zed', args: ['/p'] });
+    assert.equal(obsidianVaultsFile('/Applications/Obsidian.app', 'mac', '/h'), '/h/Library/Application Support/obsidian/obsidian.json');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('terminal: a plain shell at the folder, without claude', () => {
     assert.deepEqual(shellArgv('wsl', '/p', 'U'), { bin: 'wt.exe', args: ['wsl.exe', '-d', 'U', '--cd', '/p'] });
     assert.deepEqual(shellArgv('windows', 'C:\\p'), { bin: 'wt.exe', args: ['-d', 'C:\\p'] });
+    assert.deepEqual(shellArgv('mac', '/p'), { bin: 'open', args: ['-a', 'Terminal', '/p'] });
+  });
+
+  it('macOS: claude --resume runs in a Terminal.app window, the line passed as an argument and quoted for the shell', () => {
+    const { bin, args } = resumeArgv('mac', "/Users/x/my app", '/Users/x/.local/bin/claude', 'abc', true);
+    assert.equal(bin, 'osascript');
+    assert.equal(args.at(-1), "cd '/Users/x/my app' && /Users/x/.local/bin/claude --resume abc --fork-session");
+    assert.ok(args.slice(0, -1).every((a, i) => (i % 2 === 0 ? a === '-e' : !a.includes('/Users'))), 'the paths never become script text');
+    assert.equal(shellWord("it's"), `'it'\\''s'`);
+    assert.equal(macTerminalArgv('/p', ['claude']).args.at(-1), 'cd /p && claude');
   });
 });
 

@@ -61,7 +61,11 @@ interface Builtin {
   argv(t: Target & { cwd: string }): [string, string[]];
 }
 
-const commandLine = ({ bin, args }: { bin: string; args: string[] }) => [bin, ...args].join(' ');
+// The flag ends the claude argv, which itself ends the argv, or the one line Terminal.app runs on macOS.
+const forks = (args: string[]) => args.at(-1)?.endsWith('--fork-session') === true;
+
+// On macOS the AppleScript around it is plumbing: the line Terminal.app runs is what the user needs to see.
+const commandLine = ({ bin, args }: { bin: string; args: string[] }) => (bin === 'osascript' ? `Terminal.app: ${args.at(-1)}` : [bin, ...args].join(' '));
 
 export function launch(bin: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -83,7 +87,7 @@ export function createActions(ctx: Ctx, approvals: Approvals) {
       {
         id: 'builtin:shell',
         title: 'Terminal',
-        command: kind === 'wsl' ? `wt.exe wsl.exe -d ${wslDistro()} --cd <cwd>` : 'wt.exe -d <cwd>',
+        command: kind === 'wsl' ? `wt.exe wsl.exe -d ${wslDistro()} --cd <cwd>` : kind === 'windows' ? 'wt.exe -d <cwd>' : commandLine(shellArgv(kind, '<cwd>')),
         argv: (t) => {
           const { bin, args } = shellArgv(kind, t.cwd);
           return [bin, args];
@@ -141,7 +145,7 @@ export function createActions(ctx: Ctx, approvals: Approvals) {
     if (!target.cwd) throw httpError(400, 'cwd or project is required');
     const [bin, args] = builtins().find((b) => b.id === 'builtin:terminal')!.argv({ ...target, cwd: target.cwd });
     const holder = target.sessionId ? ctx.chat?.sessionHolder(target.sessionId)?.where ?? null : null;
-    return { command: commandLine({ bin, args }), fork: args.includes('--fork-session'), holder };
+    return { command: commandLine({ bin, args }), fork: forks(args), holder };
   }
 
   async function runAction(id: string, body: RunBody): Promise<{ ok: true; output: string; fork?: boolean; command?: string }> {
@@ -152,7 +156,7 @@ export function createActions(ctx: Ctx, approvals: Approvals) {
       const [bin, args] = builtin.argv({ ...target, cwd: target.cwd });
       await launch(bin, args);
       ctx.audit('action.run', id, target.cwd);
-      return { ok: true, output: '', ...(id === 'builtin:terminal' && target.sessionId ? { fork: args.includes('--fork-session'), command: commandLine({ bin, args }) } : {}) };
+      return { ok: true, output: '', ...(id === 'builtin:terminal' && target.sessionId ? { fork: forks(args), command: commandLine({ bin, args }) } : {}) };
     }
 
     const action = userActions().find((a) => a.id === id);

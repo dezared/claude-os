@@ -30,7 +30,9 @@ export function resolveClaudeBin(o: { env: NodeJS.ProcessEnv; pathEnv: string; p
   if (o.env.CLAUDE_OS_CLAUDE_BIN) return o.env.CLAUDE_OS_CLAUDE_BIN;
   const path = o.platform === 'win32' ? win32 : posix;
   const names = o.platform === 'win32' ? ['claude.exe', 'claude.cmd'] : ['claude'];
-  for (const dir of o.pathEnv.split(path.delimiter).filter(Boolean)) {
+  // After PATH, where the installers put it: a server started from Finder or launchd gets a PATH without them.
+  const installed = o.platform === 'win32' ? [] : [path.join(o.home, '.local', 'bin'), path.join(o.home, '.claude', 'local'), ...(o.platform === 'darwin' ? ['/opt/homebrew/bin', '/usr/local/bin'] : [])];
+  for (const dir of [...o.pathEnv.split(path.delimiter).filter(Boolean), ...installed]) {
     for (const name of names) if (o.exists(path.join(dir, name))) return path.join(dir, name);
   }
   return path.join(o.home, '.local', 'bin', o.platform === 'win32' ? 'claude.exe' : 'claude');

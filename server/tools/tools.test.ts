@@ -9,6 +9,7 @@ import { sha256 } from '../memory/util.ts';
 import { parseHealth, publicServer, redactArgs, redactUrl } from './mcp.ts';
 import { registerTools } from './index.ts';
 import { readFileWidget } from './widgets.ts';
+import { platformKind } from './platform.ts';
 
 const SECRET = 'SUPERSECRETVALUE1234567890abcdefghijkl';
 let kit: TestKit;
@@ -296,7 +297,9 @@ test('no endpoint runs a command sent by the browser', async () => {
 test('argv injection: bad cwd and sessionId refused, values reach an approved command only as $1/$2', async () => {
   const fake = join(kit.base, 'bin');
   const wtLog = join(kit.base, 'wt.log');
-  fakeBin(join(fake, 'wt.exe'), wtLog);
+  // macOS opens Terminal.app through osascript and open: stand-ins too, so no window opens.
+  const mac = platformKind() === 'mac';
+  for (const name of ['wt.exe', 'osascript', 'open']) fakeBin(join(fake, name), wtLog);
   process.env.PATH = `${fake}:${savedPath}`;
   const marker = join(kit.base, 'pwned');
   const good = join(kit.base, 'dir with пробел');
@@ -319,16 +322,20 @@ test('argv injection: bad cwd and sessionId refused, values reach an approved co
 
   assert.equal((await req('POST', '/api/actions/builtin:terminal/run', { cwd: good, sessionId: uuid })).status, 200);
   await until(() => logLines(wtLog).length === 1);
-  assert.deepEqual(logLines(wtLog)[0].slice(0, 4), ['wsl.exe', '-d', process.env.WSL_DISTRO_NAME ?? 'Ubuntu-22.04', '--cd']);
-  assert.deepEqual(logLines(wtLog)[0].slice(4), [good, '--', kit.paths.claudeBin, '--resume', uuid]);
+  if (mac) assert.equal(logLines(wtLog)[0].at(-1), `cd '${good}' && ${kit.paths.claudeBin} --resume ${uuid}`);
+  else {
+    assert.deepEqual(logLines(wtLog)[0].slice(0, 4), ['wsl.exe', '-d', process.env.WSL_DISTRO_NAME ?? 'Ubuntu-22.04', '--cd']);
+    assert.deepEqual(logLines(wtLog)[0].slice(4), [good, '--', kit.paths.claudeBin, '--resume', uuid]);
+  }
 
   // The plain shell: a folder and nothing else, the user types in it.
   assert.equal((await req('POST', '/api/actions/builtin:shell/run', { cwd: good, sessionId: uuid })).status, 200);
   await until(() => logLines(wtLog).length === 2);
-  assert.deepEqual(logLines(wtLog)[1], ['wsl.exe', '-d', process.env.WSL_DISTRO_NAME ?? 'Ubuntu-22.04', '--cd', good]);
+  assert.deepEqual(logLines(wtLog)[1], mac ? ['-a', 'Terminal', good] : ['wsl.exe', '-d', process.env.WSL_DISTRO_NAME ?? 'Ubuntu-22.04', '--cd', good]);
   assert.equal((await req('POST', '/api/open-terminal', { cwd: good })).status, 200);
   await until(() => logLines(wtLog).length === 3);
-  assert.deepEqual(logLines(wtLog)[2].slice(-2), ['--', kit.paths.claudeBin]);
+  if (mac) assert.ok(logLines(wtLog)[2].at(-1)!.endsWith(` && ${kit.paths.claudeBin}`));
+  else assert.deepEqual(logLines(wtLog)[2].slice(-2), ['--', kit.paths.claudeBin]);
 
   writeConfig('actions.json', [{ id: 'echo', title: 'E', command: 'printf "%s|%s" "$1" "$2"; pwd', cwd: '{cwd}' }]);
   await req('POST', '/api/actions/echo/approve');

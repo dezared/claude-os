@@ -114,10 +114,11 @@ describe('MCP merge', () => {
     assert.equal(parseMcpTool('Read'), null);
   });
 
-  it('login opens a terminal on Windows and WSL only, the name stays one argument', () => {
+  it('login opens a terminal on Windows, WSL and macOS, the name stays one argument', () => {
     const wsl = mcpLoginArgv('wsl', '/p', '/bin/claude', 'claude.ai Docs', 'Ubuntu')!;
     assert.deepEqual(wsl, { bin: 'wt.exe', args: ['wsl.exe', '-d', 'Ubuntu', '--cd', '/p', '--', '/bin/claude', 'mcp', 'login', 'claude.ai Docs'] });
     assert.equal(mcpLoginArgv('windows', 'C:/p', 'claude', 'x', '')!.bin, 'wt.exe');
+    assert.equal(mcpLoginArgv('mac', '/p q', '/bin/claude', 'claude.ai Docs', '')!.args.at(-1), "cd '/p q' && /bin/claude mcp login 'claude.ai Docs'");
     assert.equal(mcpLoginArgv('linux', '/p', 'claude', 'x', ''), null);
   });
 });

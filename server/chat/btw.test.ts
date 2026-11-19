@@ -1,4 +1,4 @@
-// /btw and the terminal handoff against the real server with the fake CLI. wt.exe is a script here: nothing opens on Windows.
+// /btw and the terminal handoff against the real server with the fake CLI. wt.exe and osascript are scripts here: no terminal opens.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,6 +8,7 @@ import type { BtwEvent, BtwTurn } from '../../shared/btw.ts';
 import type { Tab, TerminalPreview } from '../../shared/contract.ts';
 import { startServer, waitUntil, type TestServer } from './fixtures/harness.ts';
 import { btwArgs, sideQuestion } from './btw.ts';
+import { procStartOf } from '../journal/live.ts';
 
 const alive = (pid: number) => {
   try { process.kill(pid, 0); return true; } catch { return false; }
@@ -16,8 +17,11 @@ type Logged = { kind: string; pid: number; argv: string[] };
 
 const binDir = mkdtempSync(join(tmpdir(), 'claude-os-wt-'));
 const wtLog = join(binDir, 'wt.log');
-writeFileSync(join(binDir, 'wt.exe'), `#!/bin/bash\nprintf '%s\\n' "$*" >> "${wtLog}"\n`);
-chmodSync(join(binDir, 'wt.exe'), 0o755);
+// osascript is the same stand-in on macOS, where the terminal is Terminal.app.
+for (const name of ['wt.exe', 'osascript']) {
+  writeFileSync(join(binDir, name), `#!/bin/bash\nprintf '%s\\n' "$*" >> "${wtLog}"\n`);
+  chmodSync(join(binDir, name), 0o755);
+}
 const wtLines = () => (existsSync(wtLog) ? readFileSync(wtLog, 'utf8').trim().split('\n') : []);
 const env = { PATH: `${binDir}:${process.env.PATH}` };
 after(() => rmSync(binDir, { recursive: true, force: true }));
@@ -26,8 +30,7 @@ after(() => rmSync(binDir, { recursive: true, force: true }));
 function holdInRegistry(srv: TestServer, sessionId: string, cwd: string): () => void {
   const dir = join(srv.configDir, 'sessions');
   mkdirSync(dir, { recursive: true });
-  const stat = readFileSync(`/proc/${process.pid}/stat`, 'latin1');
-  const procStart = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  const procStart = procStartOf(process.pid);
   const file = join(dir, `${process.pid}.json`);
   writeFileSync(file, JSON.stringify({ pid: process.pid, procStart, sessionId, cwd, status: 'idle', kind: 'interactive', updatedAt: Date.now() }));
   return () => rmSync(file, { force: true });

@@ -1,13 +1,13 @@
 // config/settings.json: IDE list, per-project defaults, dismissed notices, the user's profile and setup state. Claude can edit it too: nothing in it
 // that launches a program counts until data/approved-commands.json says so.
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { HOME_SLOTS, type HomeLayout, type HomeSlot, type IdeEntry, type Profile, type ProjectIde, type ProjectSettings, type QuestionLevel, type SettingsView, type SetupState, type UniverseOptions, type UniverseTheme } from '../../shared/contract.ts';
 import type { VoiceOptions } from '../../shared/voice.ts';
 import type { Ctx } from '../context.ts';
 import { httpError, safely } from '../memory/util.ts';
 import type { Approvals } from './approvals.ts';
-import { ideArgv, launchDetached, probeObsidian, projectIde, scanIdes, type IdeScan } from './ide.ts';
+import { ideArgv, launchDetached, launchProgram, obsidianVaultsFile, probeObsidian, projectIde, scanIdes, type IdeScan } from './ide.ts';
 import { platformKind, toLinuxPath, toWindowsPath } from './platform.ts';
 import { readJson } from './shared.ts';
 import { QUESTION_LEVELS } from '../chat/profile.ts';
@@ -256,7 +256,7 @@ export function createSettings(ctx: Ctx, approvals: Approvals, scan: () => Promi
 
   // Obsidian answers obsidian:// only for vaults it already lists; say so instead of its own bare error.
   function obsidianKnowsVault(bin: string): boolean {
-    const list = readJson<{ vaults?: Record<string, { path?: string }> }>(join(dirname(dirname(dirname(dirname(bin)))), 'Roaming', 'obsidian', 'obsidian.json'));
+    const list = readJson<{ vaults?: Record<string, { path?: string }> }>(obsidianVaultsFile(bin, platformKind()));
     if (!list?.vaults) return true; // no list where it should be: not ours to judge
     const norm = (p: string) => p.replaceAll('/', '\\').replace(/^\\\\wsl\$\\/i, '\\\\wsl.localhost\\').replace(/\\+$/, '').toLowerCase();
     const wanted = norm(platformKind() === 'wsl' ? toWindowsPath(ctx.paths.vault) : ctx.paths.vault);
@@ -270,7 +270,7 @@ export function createSettings(ctx: Ctx, approvals: Approvals, scan: () => Promi
     if (!exe) throw httpError(404, 'Obsidian was not found');
     const bin = platformKind() === 'wsl' ? toLinuxPath(exe) : exe;
     if (!obsidianKnowsVault(bin)) throw httpError(409, 'vault is not open in Obsidian');
-    await launchDetached(bin, [url]);
+    await launchProgram(bin, [url]);
     ctx.audit('obsidian.open', 'obsidian', url);
   }
 

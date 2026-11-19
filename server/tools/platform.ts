@@ -32,7 +32,18 @@ export function resumeArgv(kind: PlatformKind, cwd: string, claudeBin: string, s
   // Absolute path: `wsl.exe --` starts a non-login shell, ~/.local/bin may be missing from its PATH.
   if (kind === 'wsl') return { bin: 'wt.exe', args: ['wsl.exe', '-d', distro, '--cd', cwd, '--', ...claude] };
   if (kind === 'windows') return { bin: 'wt.exe', args: ['-d', cwd, ...claude] };
+  if (kind === 'mac') return macTerminalArgv(cwd, claude);
   return { bin: claudeBin, args: claude.slice(1) };
+}
+
+// A word as a POSIX shell reads it: plain words stay readable, anything else goes in single quotes.
+export const shellWord = (s: string): string => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
+
+/** A command in a new Terminal.app window at the folder. The line reaches AppleScript as an argument, never as script text. */
+export function macTerminalArgv(cwd: string, argv: string[]): { bin: string; args: string[] } {
+  const line = `cd ${shellWord(cwd)} && ${argv.map(shellWord).join(' ')}`;
+  const script = ['on run argv', 'tell application "Terminal"', 'activate', 'do script (item 1 of argv)', 'end tell', 'end run'];
+  return { bin: 'osascript', args: [...script.flatMap((l) => ['-e', l]), line] };
 }
 
 /** A path as a Windows program understands it. */

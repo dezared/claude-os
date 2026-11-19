@@ -294,7 +294,7 @@ describe('setup routes and tools', () => {
     mkdirSync(bin);
     const ctx = { paths: { claudeBin: join(dir, 'missing', 'claude') } };
     // PATH holds only the temp folder, and home is a temp folder too: the machine's own claude cannot be found.
-    const resolve = () => resolveClaudeBin({ env: {}, pathEnv: bin, platform: process.platform, home: join(dir, 'home'), exists: existsSync });
+    const resolve = () => resolveClaudeBin({ env: {}, pathEnv: bin, platform: process.platform, home: join(dir, 'home'), exists: (p) => p.startsWith(dir) && existsSync(p) });
     const check = async () => byId(await runSetupChecks(setupCheckDeps(ctx as never, async () => account(), resolve)));
     assert.equal((await check())['claude-binary'].status, 'fail');
     writeFileSync(join(bin, 'claude'), '#!/bin/sh\necho "2.1.400 (Claude Code)"\n');

@@ -129,4 +129,8 @@ export async function failOpen(hook, main) {
   process.exitCode = code;
 }
 
-export const invoked = (url) => process.argv[1] === fileURLToPath(url);
+// Node runs the main module by its real path: a path through a link (on macOS /var and /tmp are links) still counts.
+export const invoked = (url) => {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === fileURLToPath(url); } catch { return process.argv[1] === fileURLToPath(url); }
+};

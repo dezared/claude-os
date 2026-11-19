@@ -1,6 +1,6 @@
 // The note files the store sees, kept between scans: at tens of thousands of notes a scan rereads only what changed.
 // The watcher names changed paths (reread one by one); a periodic stat pass heals missed events.
-import { opendirSync, readdirSync, readFileSync, statSync, type Dir, type Stats } from 'node:fs';
+import { opendirSync, readdirSync, readFileSync, statSync, type Dir, type Dirent, type Stats } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import { noteMeta, type NoteMeta } from './frontmatter.ts';
 import { noteSummary } from './summary.ts';
@@ -66,8 +66,10 @@ export function listMd(dir: string, recursive: boolean): string[] {
   return out;
 }
 
+// A link to a folder counts: on macOS /var and /tmp are links, and a project path is decoded through them.
 export function subdirs(dir: string): string[] {
-  return safely(() => readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name), []);
+  const isDir = (e: Dirent) => e.isDirectory() || (e.isSymbolicLink() && safely(() => statSync(join(dir, e.name)).isDirectory(), false));
+  return safely(() => readdirSync(dir, { withFileTypes: true }).filter(isDir).map((e) => e.name), []);
 }
 
 export interface Places { vault: string; claudeProjects: string }

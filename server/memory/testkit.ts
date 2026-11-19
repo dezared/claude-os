@@ -1,6 +1,6 @@
 // Shared by server/memory and server/tools tests: a Ctx over temp dirs. Nothing here touches real data.
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -23,7 +23,8 @@ export interface TestKit {
 }
 
 export function makeKit(journal?: Partial<JournalApi>): TestKit {
-  const base = mkdtempSync(join(tmpdir(), 'claude-os-test-'));
+  // Real path: on macOS the temp dir is a link, and git, pwd and realpath answer with the resolved form.
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'claude-os-test-')));
   const paths: Paths = {
     repo: base,
     data: join(base, 'data'),

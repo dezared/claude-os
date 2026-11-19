@@ -10,6 +10,7 @@ import { ScreenBoundary } from './components/CrashCard';
 import { useApi } from './lib/api';
 import { sendPendingFix, watchUncaughtErrors } from './lib/crash';
 import { applyProfileLanguage, useLang } from './lib/i18n';
+import { watchMacMenuKey } from './lib/macMenuKey';
 import { popoutRoute } from './lib/popout';
 import type { SettingsView } from './lib/types';
 import { connectSocket } from './lib/ws';
@@ -39,6 +40,7 @@ function Root() {
 }
 
 watchUncaughtErrors();
+watchMacMenuKey();
 connectSocket();
 void sendPendingFix();
 createRoot(document.getElementById('root')!).render(<Root />);

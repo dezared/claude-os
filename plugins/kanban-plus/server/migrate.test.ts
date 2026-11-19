@@ -14,7 +14,7 @@ after(() => rmSync(base, { recursive: true, force: true }));
 const BOARD = { prefixes: { '@general': 'TASK', alpha: 'OS' }, counters: { TASK: 5, OS: 5, '@sprint': 2 }, sprints: [{ id: 'S1', name: 'sizeMode+ (будущее)' }, { id: 'S2', name: 'Альфа', board: 'alpha', goal: 'релиз', state: 'active' }] };
 const FILES: Record<string, string> = {
   'OS-5.md': '---\ntitle: "В спринте"\nproject: "alpha"\npriority: "low"\ncolumn: "backlog"\nrank: 11\nlevel: "root"\nsprint: "S1"\ncreated: "2026-11-12T12:00:41.916Z"\nupdated: "2026-11-12T12:00:41.916Z"\n---\nОписание\n',
-  'OS-6.md': '---\ntitle: "Руками"\nproject: "alpha"\ntype: spike\nassignee: Мария\nestimate: 2h\nsprint: "S2"\ncolumn: "todo"\ntags:\n  - ui\n---\n',
+  'OS-6.md': '---\ntitle: "Руками"\nproject: "alpha"\ntype: spike\nassignee: Анна\nestimate: 2h\nsprint: "S2"\ncolumn: "todo"\ntags:\n  - ui\n---\n',
   'OS-7.md': '---\ntitle: "Чужой спринт"\nproject: "alpha"\ncolumn: "todo"\nsprint: "S7"\n---\n',
   'TASK-1.md': '---\ntitle: "Общая"\npriority: "normal"\ncolumn: "doing"\nrank: 7\n---\n',
 };
@@ -43,7 +43,7 @@ it('every sprint becomes a board beside the two defaults; its cards go with it, 
   for (const line of ['title: "В спринте"', 'level: "root"', 'rank: 11', 'created: "2026-11-12T12:00:41.916Z"']) assert.ok(os5.includes(line), line);
   assert.ok(os5.endsWith('---\nОписание\n'));
   const os6 = read(dir, 'OS-6.md');
-  for (const line of ['type: spike', 'assignee: Мария', 'estimate: 2h', 'tags:\n  - ui', 'board: "S2"']) assert.ok(os6.includes(line), `${line} survives:\n${os6}`);
+  for (const line of ['type: spike', 'assignee: Анна', 'estimate: 2h', 'tags:\n  - ui', 'board: "S2"']) assert.ok(os6.includes(line), `${line} survives:\n${os6}`);
   assert.equal(read(dir, 'OS-7.md'), FILES['OS-7.md'], 'a sprint the board did not know stays in the file');
   assert.equal(read(dir, 'TASK-1.md'), FILES['TASK-1.md'], 'a card in no sprint is not rewritten');
   const b = createKanban(dir, { projects: () => [{ key: 'alpha', name: 'alpha' }], frontmatter: parseFrontmatter });

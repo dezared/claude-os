@@ -22,7 +22,7 @@ export function kanbanRoutes() {
     card({ id: 'BW-7', title: 'Поправить форму оплаты', project: 'beta-web', column: 'todo', type: 'bug' }),
     card({ id: 'TASK-3', title: 'Купить домен', project: null, priority: 'low', column: 'doing', agent: 'Ревьюер' }),
     // Edited by hand in Obsidian, in values the board has no names for.
-    card({ id: 'TASK-5', title: 'Разобрать заметки', project: null, column: 'polish', asWritten: { type: 'spike', labels: 'frontend', estimate: '2h', assignee: 'Мария' } }),
+    card({ id: 'TASK-5', title: 'Разобрать заметки', project: null, column: 'polish', asWritten: { type: 'spike', labels: 'frontend', estimate: '2h', assignee: 'Анна' } }),
     card({ id: 'AS-2', title: 'Платёжный шлюз', project: 'alpha-service', column: 'doing', type: 'epic' }),
     card({ id: 'BW-9', title: 'Полноэкранный режим', project: 'beta-web', column: 'backlog', board: 'S1' }),
   ];

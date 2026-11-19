@@ -176,12 +176,12 @@ test('values written by hand that the board has no names for show as written, on
   await page.evaluate(() => localStorage.setItem('claude-os.theme', 'light'));
   await page.reload();
   const tile = card(page, 'TASK-5');
-  for (const text of ['spike', 'frontend', '2h', 'Мария']) await tile.getByText(text, { exact: true }).waitFor();
+  for (const text of ['spike', 'frontend', '2h', 'Анна']) await tile.getByText(text, { exact: true }).waitFor();
   await page.screenshot({ path: '/tmp/b4-n-kanban-light.png' });
   await tile.click();
   const detail = page.getByRole('dialog', { name: /TASK-5 · spike/ });
   await detail.getByRole('combobox', { name: 'Тип' }).getByText('spike').waitFor();
-  await detail.getByRole('combobox', { name: 'Исполнитель' }).getByText('Мария').waitFor();
+  await detail.getByRole('combobox', { name: 'Исполнитель' }).getByText('Анна').waitFor();
   assert.equal(await detail.getByLabel('Метки').inputValue(), 'frontend');
   assert.equal(await detail.getByLabel('Оценка').inputValue(), '2h');
   await page.screenshot({ path: '/tmp/b4-n-kanban-card-light.png' });

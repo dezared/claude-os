@@ -31,9 +31,9 @@ export function BottomStrip({ overview }: { overview: Query<Overview> }) {
   return (
     <footer className="contents">
       <div className="home-foot-left glass group relative flex items-stretch rounded-2xl p-1">
-        <Counter icon={Sparkles} tone="text-[#e6c07b]" label={t('strip.skills')} value={o?.skills} onClick={() => go({ kind: 'tools', pane: 'skills' })} />
-        <Counter icon={Puzzle} tone="text-[#8da9c9]" label={t('strip.plugins')} value={o?.plugins} />
-        <Counter icon={Webhook} tone="text-[#8fb8a0]" label={t('strip.hooks')} value={o?.hooks} />
+        <Counter icon={Sparkles} tone="text-c-gold" label={t('strip.skills')} value={o?.skills} onClick={() => go({ kind: 'tools', pane: 'skills' })} />
+        <Counter icon={Puzzle} tone="text-c-blue" label={t('strip.plugins')} value={o?.plugins} />
+        <Counter icon={Webhook} tone="text-c-green" label={t('strip.hooks')} value={o?.hooks} />
       </div>
     </footer>
   );

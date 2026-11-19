@@ -1,5 +1,4 @@
-import { X } from 'lucide-react';
-import { LIBRARY_ICON_INK } from '../../../shared/contract.ts';
+import { Folder, X } from 'lucide-react';
 import { spendNote } from '@/lib/account';
 import { api, setCached, useApi } from '@/lib/api';
 import { t } from '@/lib/i18n';
@@ -7,23 +6,21 @@ import { runMicrotask } from '@/lib/microtask';
 import { toastError } from '@/lib/store';
 import type { Project, ProjectIcons } from '@/lib/types';
 import { ClaudeMark } from './ClaudeMark';
+import { IconTile, MaskGlyph } from './IconTile';
 import { Button, IconButton } from './ui';
 
 const useIcons = () => useApi<ProjectIcons>('/api/project-icons', ['projects']);
 
-/** The chosen library icon in the project's colour, or a custom SVG, else a monogram. An img can run nothing and load nothing. */
-export function ProjectIcon({ project, name, color, size = 16, dim }: { project: string | null; name: string; color: string; size?: number; dim?: boolean }) {
+/** The chosen library icon in the project's colour, a custom SVG, a folder or a monogram: all in the same tile. An img can run nothing and load nothing. */
+export function ProjectIcon({ project, name, color, size = 16, dim, folder }: { project: string | null; name: string; color: string; size?: number; dim?: boolean; folder?: boolean }) {
   const data = useIcons().data;
   const key = project ?? '';
-  const svg = data?.chosen[key] ? data.icons[key]?.replaceAll(LIBRARY_ICON_INK, color) : data?.icons[key];
-  const box = { width: size, height: size, opacity: dim ? 0.55 : 1 };
-  if (svg) return <img alt="" src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`} className="block flex-none rounded-[4px]" style={box} />;
+  const svg = data?.icons[key];
   const letter = name.replace(/^[^\p{L}\p{N}]+/u, '').slice(0, 1).toUpperCase() || '·';
   return (
-    <span aria-hidden className="relative inline-flex flex-none items-center justify-center overflow-hidden rounded-[4px] font-semibold" style={{ ...box, color, fontSize: size * 0.62, lineHeight: 1 }}>
-      <i className="absolute inset-0" style={{ background: color, opacity: 0.2 }} />
-      <span className="relative">{letter}</span>
-    </span>
+    <IconTile ink={color} size={size} dim={dim}>
+      {folder ? <Folder /> : svg && data?.chosen[key] ? <MaskGlyph svg={svg} /> : svg ? <img alt="" src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`} /> : <b style={{ fontSize: size * 0.56 }}>{letter}</b>}
+    </IconTile>
   );
 }
 
@@ -51,7 +48,7 @@ export function ProjectIconsOffer() {
   };
 
   return (
-    <aside aria-label={t('icons.offerAria')} style={{ pointerEvents: 'auto' }} className="enter-fade flex flex-none items-center gap-3 border-b border-line2 bg-[#121216] px-4 py-1 text-xs">
+    <aside aria-label={t('icons.offerAria')} style={{ pointerEvents: 'auto' }} className="enter-fade flex flex-none items-center gap-3 border-b border-line2 bg-panel px-4 py-1 text-xs">
       <ClaudeMark size={12} />
       <span className="min-w-0 truncate text-muted">{t('icons.offer', { n: list.length })}</span>
       <span className="ml-auto flex flex-none items-center gap-2">

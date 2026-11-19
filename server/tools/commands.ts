@@ -1,6 +1,6 @@
 // The `/` menu. A running session answers for itself; before the first message a short-lived CLI does, no tokens spent.
 import type { CommandInfo, MessageKey, Skill, TerminalRun } from '../../shared/contract.ts';
-import { BTW_COMMAND, OFF_CHAT } from '../../shared/commands.ts';
+import { BTW_COMMAND, OFF_CHAT, SECRET_COMMAND } from '../../shared/commands.ts';
 import type { Ctx } from '../context.ts';
 import { probeCli } from '../chat/probe.ts';
 import { runInPty } from '../chat/terminal.ts';
@@ -20,6 +20,7 @@ export function toCommandInfo(listed: RawCommand[], skills: Pick<Skill, 'name' |
   if (!has(VIEW_COMMAND)) raw.push({ name: VIEW_COMMAND, description: 'Chat width: default, large, or full', argumentHint: '[default|large|full]', builtin: true });
   // Claude OS answers it on the side, whatever the CLI says about its own version.
   raw.push({ name: BTW_COMMAND, description: 'Ask a quick side question without interrupting the main conversation', argumentHint: '<question>', builtin: true });
+  raw.push({ name: SECRET_COMMAND, description: 'Save a token or password hidden: Claude gets only its name', argumentHint: '[NAME=]<value>', builtin: true });
   // The CLI leaves these out for SDK sessions. They stay in the menu, entering one explains where it works.
   const offChat = Object.entries(OFF_CHAT).filter(([name, c]) => c.menu !== undefined && !has(name));
   raw.push(...offChat.map(([name, c]) => ({ name, description: c.menu, builtin: true })));

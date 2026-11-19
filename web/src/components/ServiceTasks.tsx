@@ -2,9 +2,11 @@ import { AppWindow, CircleAlert, CircleCheck, Hourglass, MessageCircleQuestionMa
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { api, useApi } from '@/lib/api';
+import { exitCopy } from '@/lib/flip';
 import { cn } from '@/lib/format';
 import { serverText, t } from '@/lib/i18n';
 import { toast, toastError, useApp } from '@/lib/store';
+import { pluginScreens } from '@/lib/uiPlugins';
 import { createTab } from '@/lib/tabs';
 import type { Project, ServiceTask, ServiceTaskStatus, Tab } from '@/lib/types';
 import { popoutBridge, usePopouts } from './desktop';
@@ -57,7 +59,7 @@ function Card({ task, embedded }: { task: ServiceTask; embedded?: boolean }) {
   const answer = () => text.trim() && act(() => api(url(task, '/answer'), { method: 'POST', body: { text: text.trim() } }));
 
   return (
-    <div data-testid="service-task" data-status={task.status} className={embedded ? 'enter-fade' : 'enter-fade rounded-xl border border-line bg-[#141418] p-3'}>
+    <div data-testid="service-task" data-status={task.status} className={embedded ? 'enter-fade' : 'enter-fade rounded-xl border border-line bg-panel p-3'}>
       <div className="flex items-start gap-2">
         <Icon size={14} className={cn('mt-0.5 flex-none', tone, task.status === 'running' && 'dot-working')} />
         <div className="min-w-0 flex-1">
@@ -150,7 +152,7 @@ export function ServiceTasksButton() {
       aria-pressed={open && !out}
       title={t('service.region')}
       onClick={() => (out ? popoutBridge()?.openPopout({ kind: 'service' }) : open ? useServicePanel.setState({ open: false }) : showPanel())}
-      className={cn('press flex h-7 items-center gap-1 rounded-md px-2', open && !out ? 'bg-white/[.12] text-fg' : 'text-muted hover:bg-white/[.08] hover:text-fg')}
+      className={cn('press flex h-7 items-center gap-1 rounded-md px-2', open && !out ? 'bg-fg/[.12] text-fg' : 'text-muted hover:bg-fg/[.08] hover:text-fg')}
     >
       <Zap size={13} className={cn(asking ? 'text-warn' : working && 'dot-working text-accent')} />
       {count > 0 && <span className={cn('font-mono text-[11px]', asking && 'text-warn')}>{count}</span>}
@@ -188,7 +190,7 @@ export function ServiceTasks() {
     <>
     <ModalServiceTasks boardLink />
     {open && !out && tasks.length > 0 && (
-      <aside role="complementary" aria-label={t('service.region')} className="glass-reading enter-fade fixed top-12 right-2 z-40 flex max-h-[calc(100vh-4rem)] w-[min(400px,calc(100vw-16px))] flex-col overflow-hidden rounded-2xl bg-[#0e0e12]!">
+      <aside ref={exitCopy} role="complementary" aria-label={t('service.region')} className="glass-reading enter-fade fixed top-12 right-2 z-40 flex max-h-[calc(100vh-4rem)] w-[min(400px,calc(100vw-16px))] flex-col overflow-hidden rounded-2xl bg-panel-deep!">
         <header className="flex flex-none items-center gap-2 border-b border-line2 py-1 pr-1 pl-3">
           <Zap size={13} className="flex-none text-accent" />
           <strong className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{t('service.region')}</strong>
@@ -231,9 +233,9 @@ function TaskDialog({ task, boardLink }: { task: ServiceTask; boardLink?: boolea
         )}
         {over && (
           <div className="flex justify-end gap-2">
-            {boardLink && task.status === 'done' && (
+            {boardLink && task.status === 'done' && pluginScreens().some((s) => s.id === 'kanban') && (
               <Button onClick={() => {
-                useApp.getState().go({ kind: 'kanban', board: task.link });
+                useApp.getState().go({ kind: 'plugin', screen: 'kanban', arg: task.link });
                 void finish('', 'DELETE');
               }}><SquareKanban size={12} />{t('service.openBoard')}</Button>
             )}

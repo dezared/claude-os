@@ -1,8 +1,9 @@
 // config/settings.json: IDE list, per-project defaults, dismissed notices, the user's profile and setup state. Claude can edit it too: nothing in it
 // that launches a program counts until data/approved-commands.json says so.
-import { accessSync, constants, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { HOME_SLOTS, type HomeLayout, type HomeSlot, type IdeEntry, type Profile, type ProjectIde, type ProjectSettings, type QuestionLevel, type SettingsView, type SetupState, type UniverseOptions, type UniverseTheme } from '../../shared/contract.ts';
+import type { VoiceOptions } from '../../shared/voice.ts';
 import type { Ctx } from '../context.ts';
 import { httpError, safely } from '../memory/util.ts';
 import type { Approvals } from './approvals.ts';
@@ -11,6 +12,7 @@ import { platformKind, toLinuxPath, toWindowsPath } from './platform.ts';
 import { readJson } from './shared.ts';
 import { QUESTION_LEVELS } from '../chat/profile.ts';
 import { validateCwd, validatePath } from './actions.ts';
+import { voiceOptions, voicePatchError } from '../voice/options.ts';
 
 interface RawSettings {
   ides?: { scannedAt?: number; list?: IdeEntry[]; obsidian?: { installed?: boolean | null; exe?: string | null } };
@@ -41,28 +43,20 @@ function universeOptions(raw: unknown): UniverseOptions {
 const LEVELS = Object.keys(QUESTION_LEVELS) as QuestionLevel[];
 const SETUP_STEPS: SetupState['step'][] = ['checks', 'onboarding', 'done'];
 
-// The reason a profile field does not fit, null when it does. The folder is checked on disk only when a request sets it.
-function profileError(p: Record<string, unknown>, onDisk: boolean): string | null {
+// The reason a profile field does not fit, null when it does.
+function profileError(p: Record<string, unknown>): string | null {
   if (typeof p.name !== 'string' || !p.name.trim() || p.name.trim().length > 60) return 'name: 1 to 60 characters';
   if (/\p{Cc}/u.test(p.name)) return 'name: no control characters';
   if (typeof p.language !== 'string' || !/^[a-z]{2,3}$/.test(p.language)) return 'language: an ISO 639 code like en';
   if (!LEVELS.includes(p.questionLevel as QuestionLevel)) return `questionLevel: one of ${LEVELS.join(', ')}`;
-  if (typeof p.projectsDir !== 'string' || !isAbsolute(p.projectsDir)) return 'projectsDir: an absolute path';
-  if (onDisk) {
-    try {
-      if (!statSync(p.projectsDir).isDirectory()) return 'projectsDir: not a folder';
-      accessSync(p.projectsDir, constants.W_OK);
-    } catch {
-      return 'projectsDir: no such writable folder';
-    }
-  }
   return null;
 }
 
 function profileOf(raw: unknown): Profile | null {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  if (profileError(p, false)) return null;
-  return { name: (p.name as string).trim(), language: p.language as string, projectsDir: p.projectsDir as string, questionLevel: p.questionLevel as QuestionLevel };
+  if (profileError(p)) return null;
+  // Only the known keys: a key from an older version, like projectsDir, is dropped on the next save.
+  return { name: (p.name as string).trim(), language: p.language as string, questionLevel: p.questionLevel as QuestionLevel };
 }
 
 function setupOf(raw: unknown): SetupState {
@@ -89,6 +83,20 @@ function homeLayout(raw: unknown): HomeLayout {
   const removed = ids(h.removed);
   const heights = Object.entries(h.heights && typeof h.heights === 'object' ? h.heights : {}).filter((e): e is [string, number] => Number.isFinite(e[1]) && e[1] >= 64);
   return { slots, hidden: ids(h.hidden), ...(collapsed.length ? { collapsed } : {}), ...(heights.length ? { heights: Object.fromEntries(heights) } : {}), ...(removed.length ? { removed } : {}) };
+}
+
+const voiceOf = (raw: RawSettings) => voiceOptions(raw.voice, profileOf(raw.profile)?.language ?? null);
+
+// Apart from createSettings, which is at its size cap. Only what the user picked is stored: a language left alone keeps following the profile.
+function setVoice(s: { ctx: Ctx; read: () => RawSettings; write: (next: RawSettings) => void; view: () => SettingsView }, patch: Partial<VoiceOptions>): SettingsView {
+  const error = voicePatchError(patch);
+  if (error) throw httpError(400, error);
+  const raw = s.read();
+  const given = (raw.voice && typeof raw.voice === 'object' ? raw.voice : {}) as Partial<VoiceOptions>;
+  s.write({ ...raw, voice: { ...given, ...(patch.model ? { model: patch.model } : {}), ...(patch.language ? { language: patch.language } : {}) } });
+  s.ctx.audit('settings.voice', 'voice', JSON.stringify(patch));
+  s.ctx.invalidate('voice');
+  return s.view();
 }
 
 export function createSettings(ctx: Ctx, approvals: Approvals, scan: () => Promise<IdeScan> = scanIdes, probe: () => Promise<{ installed: boolean; exe: string | null }> = probeObsidian) {
@@ -148,7 +156,7 @@ export function createSettings(ctx: Ctx, approvals: Approvals, scan: () => Promi
       scanError,
       obsidian: { installed: raw.ides?.obsidian?.installed ?? null, exe: raw.ides?.obsidian?.exe ?? null, dismissed: raw.obsidianDismissed === true, vaultWindows },
       projects: raw.projects ?? {},
-      universe: universeOptions(raw.universe),
+      universe: universeOptions(raw.universe), voice: voiceOf(raw),
       home: homeLayout(raw.home),
       profile: profileOf(raw.profile),
       setup: setupOf(raw.setup),
@@ -270,7 +278,7 @@ export function createSettings(ctx: Ctx, approvals: Approvals, scan: () => Promi
   function setProfile(patch: Partial<Profile>): SettingsView {
     const raw = read();
     const next = { ...profileOf(raw.profile), ...patch };
-    const error = profileError(next, patch.projectsDir !== undefined);
+    const error = profileError(next);
     if (error) throw httpError(400, error);
     write({ ...raw, profile: profileOf(next) });
     return view();
@@ -286,7 +294,7 @@ export function createSettings(ctx: Ctx, approvals: Approvals, scan: () => Promi
     return { model: typeof p?.model === 'string' ? p.model : null, effort: typeof p?.effort === 'string' ? p.effort : null };
   }
 
-  return { view, setProject, setUniverse, setHome, setProfile, forProject, open, approve, dismissObsidian, recheckObsidian, openObsidian, projectDefaults, profile: () => profileOf(read().profile), setup: () => setupOf(read().setup), saveSetup, scan: async () => { await runScan(); return view(); } };
+  return { view, setProject, setUniverse, setVoice: (patch: Partial<VoiceOptions>) => setVoice({ ctx, read, write, view }, patch), setHome, setProfile, forProject, open, approve, dismissObsidian, recheckObsidian, openObsidian, projectDefaults, profile: () => profileOf(read().profile), voice: () => voiceOf(read()), setup: () => setupOf(read().setup), saveSetup, scan: async () => { await runScan(); return view(); } };
 }
 
 export type Settings = ReturnType<typeof createSettings>;

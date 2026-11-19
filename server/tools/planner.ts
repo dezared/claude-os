@@ -414,7 +414,7 @@ export function registerPlanner(ctx: Ctx): void {
   // Into a task of the service session, shown in a dialog: the questions and the answer stay in that one mechanism.
   app.post<{ Params: { id: string } }>('/api/planner/:id/decompose', async (req) => {
     const note = find(dir, req.params.id);
-    if (!ctx.chat) throw httpError(503, 'no chat module');
+    if (!ctx.chat || !ctx.pluginServers?.has('add_kanban_card')) throw ctx.chat ? httpError(409, 'the kanban board is off: enable the Kanban+ plugin') : httpError(503, 'no chat module'); // the cards are made with the Kanban+ board's tools
     // A note has no project of its own: a folder named after one still says where the cards go.
     const folder = listFolders(dir).find((f) => f.id === folderOfNotes(dir).get(note.id))?.name.toLowerCase();
     const project = ctx.journal.listProjects(true).find((p) => p.name.toLowerCase() === folder)?.key ?? null;

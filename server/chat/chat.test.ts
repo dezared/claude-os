@@ -86,7 +86,7 @@ describe('chat over the fake claude', () => {
     assert.doesNotMatch(joined, /--permission-mode|bypassPermissions|dangerously/);
     // A planner note and its pictures are read by path from any project.
     assert.ok(argv.includes(`--add-dir=${join(srv.dataDir, 'planner')}`), joined);
-    assert.doesNotMatch(joined, /mcp__claude-os__(list_projects|open_session|create_project|remove_planner_item)/);
+    assert.doesNotMatch(joined, /mcp__claude-os__(open_session|create_project|remove_planner_item)/);
     assert.ok(joined.includes('mcp__claude-os__check_planner_item'), 'marking an item needs no prompt');
     const init = srv.log().filter((l) => l.kind === 'initialize').at(-1) as { request: { sdkMcpServers?: string[]; systemPrompt?: unknown } };
     assert.deepEqual(init.request.sdkMcpServers, ['claude-os']);
@@ -100,11 +100,11 @@ describe('chat over the fake claude', () => {
     assert.equal(init.request.hooks?.PreToolUse?.[0]?.matcher, 'Read|Write|Edit|MultiEdit');
   });
 
-  it('a work tab gets the two planner item tools and nothing else of the root server', async () => {
+  it('a work tab gets the two planner item tools, list_projects and open_session, and nothing else of the root server', async () => {
     const tab = await newTab();
     await send(tab.id, 'MCP LIST');
     const listed = await client.waitEvent(tab.id, 'assistant', (a) => JSON.stringify(a.blocks).includes('MCP_RESULT'));
-    assert.deepEqual(JSON.parse((listed.blocks[0] as { text: string }).text.replace('MCP_RESULT ', '')).tools.sort(), ['check_planner_item', 'create_document_knowledge', 'kit_apply', 'kit_plan', 'list_document_knowledge', 'list_documents', 'list_kanban_cards', 'list_kanban_sprints', 'memory_search', 'move_kanban_card', 'patch_document', 'read_document', 'read_document_knowledge', 'remove_planner_item', 'report_progress', 'save_document', 'set_document_share', 'take_kanban_card', 'ui_action', 'update_kanban_card']);
+    assert.deepEqual(JSON.parse((listed.blocks[0] as { text: string }).text.replace('MCP_RESULT ', '')).tools.sort(), ['check_planner_item', 'create_document_knowledge', 'delete_secret', 'kit_apply', 'kit_plan', 'list_document_knowledge', 'list_documents', 'list_projects', 'list_secrets', 'memory_search', 'open_session', 'patch_document', 'read_document', 'read_document_knowledge', 'remove_planner_item', 'report_progress', 'save_document', 'set_document_share', 'ui_action', 'write_secret']);
     await client.waitEvent(tab.id, 'result');
   });
 
@@ -237,6 +237,17 @@ describe('chat over the fake claude', () => {
     assert.equal(dequeued.length, 2);
     await waitUntil(async () => (await tabOf(tab.id)).queued === 0 && (await tabOf(tab.id)).status === 'idle', 'queue drained');
     assert.equal(client.events(tab.id).filter((e) => e.e === 'result').length, 3);
+  });
+
+  it('counts the running subagents on the tab', async () => {
+    const tab = await newTab();
+    assert.equal(tab.subagents, 0);
+    await send(tab.id, 'AGENT 300');
+    await client.waitEvent(tab.id, 'task', (e) => e.task.status === 'running');
+    assert.equal((await tabOf(tab.id)).subagents, 1);
+    await client.waitEvent(tab.id, 'task', (e) => e.task.status === 'completed');
+    assert.equal((await tabOf(tab.id)).subagents, 0);
+    await client.waitEvent(tab.id, 'result');
   });
 
   it('interrupt drops the queue with a warning instead of spending tokens', async () => {
@@ -427,7 +438,7 @@ describe('chat over the fake claude', () => {
   });
 
   it('the profile block comes first in the appended prompt', async () => {
-    const saved = await srv.api('PUT', '/api/settings/profile', { name: 'Ann', language: 'de', projectsDir: srv.dir, questionLevel: 'minimal' });
+    const saved = await srv.api('PUT', '/api/settings/profile', { name: 'Ann', language: 'de', questionLevel: 'minimal' });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const tab = await newTab();
     await send(tab.id, 'who am I');
@@ -457,7 +468,7 @@ describe('chat over the fake claude', () => {
       }, 'turn result');
       return client.events(id).filter((e) => e.e === 'tool_result');
     };
-    const profile = (questionLevel: string) => srv.api('PUT', '/api/settings/profile', { name: 'Ann', language: 'de', projectsDir: srv.dir, questionLevel });
+    const profile = (questionLevel: string) => srv.api('PUT', '/api/settings/profile', { name: 'Ann', language: 'de', questionLevel });
 
     assert.equal((await profile('balanced')).status, 200);
     const balanced = await newTab();
@@ -588,19 +599,20 @@ describe('chat over the fake claude', () => {
     await send(root.id, 'MCP LIST');
     const listed = await client.waitEvent(root.id, 'assistant', (a) => JSON.stringify(a.blocks).includes('MCP_RESULT'));
     const payload = (a: typeof listed) => JSON.parse((a.blocks[0] as { text: string }).text.replace('MCP_RESULT ', ''));
-    assert.deepEqual(payload(listed).tools.sort(), ['add_kanban_card', 'add_kanban_sprint', 'check_planner_item', 'create_document_knowledge', 'create_project', 'file_planner_note', 'list_document_knowledge', 'list_documents', 'list_kanban_cards', 'list_kanban_sprints', 'list_projects', 'list_sessions', 'memory_search', 'move_kanban_card', 'open_session', 'open_sessions', 'patch_document', 'read_document', 'read_document_knowledge', 'remove_kanban_sprint', 'remove_planner_item', 'report_progress', 'restart_claude_os', 'resume_session', 'save_document', 'service_task', 'session_status', 'set_document_share', 'set_project_map', 'take_kanban_card', 'ui_action', 'update_kanban_card', 'update_kanban_sprint', 'update_project']);
+    assert.deepEqual(payload(listed).tools.sort(), ['check_planner_item', 'create_document_knowledge', 'create_project', 'delete_secret', 'file_planner_note', 'list_document_knowledge', 'list_documents', 'list_projects', 'list_secrets', 'list_sessions', 'memory_search', 'open_session', 'open_sessions', 'patch_document', 'read_document', 'read_document_knowledge', 'remove_planner_item', 'report_progress', 'restart_claude_os', 'resume_session', 'save_document', 'service_task', 'session_status', 'set_document_share', 'set_project_map', 'ui_action', 'update_project', 'write_secret']);
     const init = srv.log().filter((l) => l.kind === 'initialize').at(-1) as { request: { sdkMcpServers: string[] } };
     assert.deepEqual(init.request.sdkMcpServers, ['claude-os']);
     assert.ok(spawns().at(-1)!.argv.join(' ').includes('mcp__claude-os__list_projects'), 'read tools pre-approved');
     assert.ok(spawns().at(-1)!.argv.join(' ').includes('mcp__claude-os__open_sessions'), 'handing work out is its job');
-    assert.ok(!spawns().at(-1)!.argv.join(' ').includes('mcp__claude-os__remove_kanban_sprint'), 'removing a sprint asks');
     await client.waitEvent(root.id, 'result');
 
     for (const name of ['../evil', '..', 'a/b', '/etc/x', '.hidden', 'a..b', '']) {
       const before = client.events(root.id).length;
-      await send(root.id, `MCP create_project ${JSON.stringify({ name, prompt: 'x' })}`);
-      await waitUntil(() => client.events(root.id).slice(before).some((e) => e.e === 'result'), 'refusal');
-      const text = JSON.stringify(client.events(root.id).slice(before));
+      await send(root.id, `MCP create_project ${JSON.stringify({ name, parent: srv.newProjects, prompt: 'x' })}`);
+      // A result of the turn before may land after `before`: wait for one that follows this request.
+      const sinceAsk = () => { const tail = client.events(root.id).slice(before); return tail.slice(tail.findIndex((e) => e.e === 'user')); };
+      await waitUntil(() => client.events(root.id).slice(before).some((e) => e.e === 'user') && sinceAsk().some((e) => e.e === 'result'), 'refusal');
+      const text = JSON.stringify(sinceAsk());
       assert.ok(text.includes('isError'), `${name}: ${text}`);
     }
     assert.equal(existsSync(join(srv.dir, 'evil')), false);
@@ -611,7 +623,7 @@ describe('chat over the fake claude', () => {
     const root = (await srv.api<Tab[]>('GET', '/api/tabs')).body.find((t) => t.kind === 'root')!;
     client.subscribe(root.id);
     const mark = client.messages.length;
-    await send(root.id, `MCP create_project ${JSON.stringify({ name: 'fresh-one', prompt: 'build it' })}`);
+    await send(root.id, `MCP create_project ${JSON.stringify({ name: 'fresh-one', parent: srv.newProjects, prompt: 'build it' })}`);
     await waitUntil(() => client.messages.slice(mark).some((m) => m.t === 'tab_opened'), 'tab_opened');
     const opened = client.messages.slice(mark).find((m) => m.t === 'tab_opened')!;
     assert.ok(opened.t === 'tab_opened' && opened.focus);
@@ -901,8 +913,9 @@ describe('units', () => {
   });
 });
 
+// A killed child stays a zombie until the server reaps it; like the server, count a zombie as gone.
 function alive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+  return procStartOf(pid) !== null;
 }
 
 function readdirCount(dir: string): number {

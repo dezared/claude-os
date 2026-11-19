@@ -234,7 +234,7 @@ function ToolRow({ tool, result }: { tool: ToolBlock; result: { text: string; is
         <span className="ml-auto flex flex-none items-center gap-1.5 pl-1">
           {stat && (stat.add > 0 || stat.del > 0) && (
             <span className="diff-stat" title={t('tool.diffStat', { add: stat.add, del: stat.del })}>
-              <span className="text-[#8fc99a]">+{stat.add}</span> <span className="text-[#e08b7a]">−{stat.del}</span>
+              <span className="text-c-diff-add">+{stat.add}</span> <span className="text-c-diff-del">−{stat.del}</span>
             </span>
           )}
           {!result && <i className="dot-working block size-1 rounded-full bg-accent" title={t('tool.running')} />}
@@ -299,7 +299,7 @@ function DocumentResult({ text }: { text: string }) {
   }, [text]);
   if (!doc) return null;
   return (
-    <button type="button" data-document-link={doc.id} onClick={() => void openDocument(doc.id)} className="press my-1 ml-4 flex max-w-full items-center gap-2 rounded-lg border border-line bg-white/[.03] px-2.5 py-1.5 text-left text-xs text-soft transition-colors duration-150 hover:border-white/20 hover:bg-white/[.07] hover:text-fg">
+    <button type="button" data-document-link={doc.id} onClick={() => void openDocument(doc.id)} className="press my-1 ml-4 flex max-w-full items-center gap-2 rounded-lg border border-line bg-fg/[.03] px-2.5 py-1.5 text-left text-xs text-soft transition-colors duration-150 hover:border-fg/20 hover:bg-fg/[.07] hover:text-fg">
       <FileText size={13} className="flex-none text-dim" />
       <span className="min-w-0 truncate">{doc.title}</span>
       <ChevronRight size={12} className="flex-none text-dim" />

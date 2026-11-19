@@ -17,12 +17,11 @@ One or two sentences: you will ask a few questions and then Claude OS is ready.
 
 ## 2. Ask in one AskUserQuestion call
 
-Ask these four questions together:
+Ask these three questions together:
 
 1. Name: how to address the user. Options: `gitName` and `homeName`, when present; the user can type another.
 2. Language: the reply and interface language. Options: English (`en`) and the language of `locale` if it differs; the user can type another one.
-3. Projects folder: where new projects are created. Options: the first two or three `projectFolders` paths; the user can type another existing folder.
-4. Question level: how often you ask before acting.
+3. Question level: how often you ask before acting.
    - `minimal`: ask only when blocked.
    - `balanced`: ask when a request is genuinely ambiguous.
    - `thorough`: confirm assumptions before larger changes.
@@ -31,8 +30,8 @@ Only if `memoryProjects` is above 0, ask one more question in a second call: con
 
 ## 3. Save
 
-1. Call `save_profile` with `name`, `language` (ISO 639 code like `en`), `projectsDir` (absolute path) and `questionLevel`. If it returns an error, it names the field: ask the user about that field only and call it again. A folder that does not exist must be created by the user first, or another one chosen.
-2. Call `complete_setup`.
+1. Call `save_profile` with `name`, `language` (ISO 639 code like `en`) and `questionLevel`. If it returns an error, it names the field: ask the user about that field only and call it again.
+2. Call `complete_setup`. Its result names the plugins it enabled, any it could not and the ones that stay off: say so in line 1 below, point to the plugins screen for the ones it could not, and say the ones off can be enabled on request.
 
 ## 4. Onboarding text
 
@@ -40,6 +39,6 @@ Finish with exactly five short lines in the chosen language, addressed to the us
 
 1. Setup is done; the profile can be changed any time in Settings.
 2. The Home tab is the main conversation: it opens project tabs and hands work out.
-3. Each project works in its own tab, in its own folder.
+3. Each project works in its own tab, in its own folder; the user adds a project by asking in the Home tab and saying where it is.
 4. Notes and memory live in the vault (plus what they chose about existing memory).
-5. One suggestion for a first step, for example opening a project in the chosen folder.
+5. One suggestion for a first step, for example asking the Home tab to add a project by its folder.

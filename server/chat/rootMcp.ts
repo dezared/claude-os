@@ -7,35 +7,34 @@ import { documentLink } from '../../shared/documents.ts';
 import { documentsFor } from '../tools/documents.ts';
 import { fileNote, itemsOf, plannerDir, removeItem, saveText, setItem } from '../tools/planner.ts';
 import { createProjectTool, fail, ok, resumeSessionTool } from './dispatchTools.ts';
-import { kanbanTools, listKanbanTool, listSprintsTool, moveKanbanTool, takeKanbanTool, updateKanbanTool } from './kanbanTools.ts';
-import { kitTools } from './kitTools.ts';
+import { kitTools, secretTools } from './kitTools.ts';
 import type { Chat } from './manager.ts';
 import { memorySearchTool } from './memoryTool.ts';
 import { progressStatusLabels } from './profile.ts';
+import type { PluginScope } from '../tools/pluginServerApi.ts';
 
 export { projectDirFor } from './dispatchTools.ts';
 
 export const ROOT_MCP_NAME = 'claude-os';
-export const ROOT_READ_TOOLS = ['list_projects', 'list_sessions', 'session_status', 'memory_search', 'list_kanban_cards', 'list_kanban_sprints'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
+export const ROOT_READ_TOOLS = ['list_projects', 'list_sessions', 'session_status', 'memory_search'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
 // Writes, but only moves one note or changes one of its items, inside the planner folder: no prompt for every note.
 export const ROOT_PLANNER_TOOLS = ['file_planner_note', 'check_planner_item', 'remove_planner_item'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
 // In a work tab only marking goes without a prompt: it can be undone, a removed item cannot.
 export const WORK_PLANNER_TOOL = `mcp__${ROOT_MCP_NAME}__check_planner_item`;
 // Reads snippets of memory notes: every tab, no prompt.
 export const MEMORY_SEARCH_TOOL = `mcp__${ROOT_MCP_NAME}__memory_search`;
-// A work tab reads the board, marks what it took and edits a card: nothing leaves a card's file.
-export const WORK_KANBAN_TOOLS = ['list_kanban_cards', 'list_kanban_sprints', 'move_kanban_card', 'take_kanban_card', 'update_kanban_card'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
-// The same for the board: a card is added, moved or edited, a sprint added or renamed. Removing a sprint asks.
-export const ROOT_KANBAN_TOOLS = ['add_kanban_card', 'move_kanban_card', 'take_kanban_card', 'update_kanban_card', 'add_kanban_sprint', 'update_kanban_sprint'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
+// What enabled plugins' server parts add to a session (pluginServers.tools) and, of those, the ones that need no prompt.
+export const pluginAllowed = (ctx: Pick<Ctx, 'pluginServers'>, scope: PluginScope) => (ctx.pluginServers?.allowed(scope) ?? []).map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
 
 // Everything the service session has, all without a prompt: nobody is there to answer one.
 export const SERVICE_TOOLS = ['file_planner_note', 'set_planner_note_text'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
 
 // The root session hands work out and restarts the server without a prompt: that is its job, and the user asked for it.
-export const ROOT_DISPATCH_TOOLS = ['open_session', 'open_sessions', 'resume_session', 'create_project', 'service_task', 'restart_claude_os'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
+// create_project asks: it makes a folder anywhere, and the card shows where.
+export const ROOT_DISPATCH_TOOLS = ['open_session', 'open_sessions', 'resume_session', 'service_task', 'restart_claude_os'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
 
 // A task from the user: reading, the board, notes, and a tab when the job is too big. Files go through canUseTool.
-export const SERVICE_TASK_TOOLS = ['list_projects', 'list_sessions', 'memory_search', 'list_kanban_cards', 'list_kanban_sprints', 'add_kanban_card', 'move_kanban_card', 'take_kanban_card', 'update_kanban_card', 'add_kanban_sprint', 'update_kanban_sprint', 'file_planner_note', 'check_planner_item', 'remove_planner_item', 'set_project_map', 'update_project', 'open_session', 'ask_owner', 'list_documents', 'read_document', 'save_document', 'patch_document', 'set_document_share', 'list_document_knowledge', 'read_document_knowledge', 'create_document_knowledge'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
+export const SERVICE_TASK_TOOLS = ['list_projects', 'list_sessions', 'memory_search', 'file_planner_note', 'check_planner_item', 'remove_planner_item', 'set_project_map', 'update_project', 'open_session', 'ask_owner', 'list_documents', 'read_document', 'save_document', 'patch_document', 'set_document_share', 'list_document_knowledge', 'read_document_knowledge', 'create_document_knowledge'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
 
 // The library of documents, in every session and without a prompt: nothing here reaches outside data/documents and config/document-knowledge.
 export const DOCUMENT_TOOLS = ['list_documents', 'read_document', 'save_document', 'patch_document', 'set_document_share', 'list_document_knowledge', 'read_document_knowledge', 'create_document_knowledge'].map((t) => `mcp__${ROOT_MCP_NAME}__${t}`);
@@ -49,12 +48,13 @@ export const UI_TOOL = `mcp__${ROOT_MCP_NAME}__ui_action`;
 // In the system prompt: when to speak up belongs to the instructions, a tool's description alone is easy to pass by.
 export const UI_TOOL_RULE = `Reach the user outside the chat only through ${UI_TOOL}: one notify at the very end of the turn, when the whole request is done or you cannot go on without the user's answer.`;
 
-// The chat makes a path a link to the file; a shortened one names no file.
-export const PATH_RULE = 'Write file paths in full (absolute), never shortened; the UI shortens them for display.';
+// The chat makes a path a link to the file and an image path a picture; a path relative to a subfolder the session
+// worked in names no file. Its own outputs are the easiest to miss. Kept short: the work tab append is near its budget.
+export const PATH_RULE = 'Write file paths in full (absolute), your outputs too: relative ones open only from the tab folder. Images show inline.';
 
 // The bar of this tab on the home screen. Loaded with the prompt, not deferred: a ToolSearch before the first report would cost more than all of them.
 export const PROGRESS_TOOL = `mcp__${ROOT_MCP_NAME}__report_progress`;
-export const PROGRESS_RULE = `Call ${PROGRESS_TOOL} only for a task of more than about 5-10 minutes, with subagents or long steps, silently at step boundaries, and at the end with percent 100 and status "done".`;
+export const PROGRESS_RULE = `Call ${PROGRESS_TOOL} only for long tasks, silently at step boundaries; end with percent 100, status "done".`;
 
 const SESSION_LIST_LIMIT = 50;
 // Labels in the descriptions follow the user's language as it is when the server is built.
@@ -93,14 +93,16 @@ const plannerItemTools = (ctx: Ctx) => [
 ];
 
 const UI_VIEWS = Object.keys(UI_VIEW_SET) as [UiView, ...UiView[]];
+// The core's screens and those of enabled plugins, as they are when the session's server is made.
+const uiViews = (ctx: Ctx) => [...UI_VIEWS, ...(ctx.pluginServers?.views() ?? [])] as [string, ...string[]];
 const UI_ACTIONS = Object.keys(UI_ACTION_SET) as [UiCommand['action'], ...UiCommand['action'][]];
 
 /** Input of the tool -> what the browser runs. A string is what to tell Claude was wrong. */
-export function uiCommand(input: { action: UiCommand['action']; kind?: 'done' | 'question'; text?: string; view?: UiView; project?: string }, projects: { key: string }[]): UiCommand | string {
+export function uiCommand(input: { action: UiCommand['action']; kind?: 'done' | 'question'; text?: string; view?: string; project?: string }, projects: { key: string }[], views: readonly string[] = UI_VIEWS): UiCommand | string {
   const text = input.text?.trim() ?? '';
   if (input.action === 'notify') return input.kind ? { action: 'notify', kind: input.kind, text: text || null } : 'notify: kind is required: done or question';
   if (input.action === 'toast') return text ? { action: 'toast', text } : 'toast: text is required';
-  if (!input.view) return `open: view is required: ${UI_VIEWS.join(', ')}`;
+  if (!input.view || !views.includes(input.view)) return `open: view is one of ${views.join(', ')}`;
   if (input.project && !projects.some((p) => p.key === input.project)) return `Project "${input.project}" not found. list_projects gives the keys.`;
   return { action: 'open', view: input.view, project: input.project ?? null };
 }
@@ -197,10 +199,10 @@ export const uiTool = (ctx: Ctx, tabId: string) => tool('ui_action', 'Do somethi
   action: z.enum(UI_ACTIONS),
   kind: z.enum(['done', 'question']).optional().describe('For notify'),
   text: z.string().max(300).optional().describe('For notify and toast: a short phrase'),
-  view: z.enum(UI_VIEWS).optional().describe('For open'),
+  view: z.enum(uiViews(ctx)).optional().describe('For open'),
   project: z.string().optional().describe('For open: project key'),
 }, async (input) => {
-  const command = uiCommand(input, ctx.journal.listProjects(true));
+  const command = uiCommand(input, ctx.journal.listProjects(true), uiViews(ctx));
   if (typeof command === 'string') return fail(command);
   ctx.broadcast({ t: 'ui', tabId, command });
   return ok('Done');
@@ -216,7 +218,8 @@ export const progressTool = (ctx: Ctx, tabId: string) => tool('report_progress',
   return ok('ok');
 }, { alwaysLoad: true });
 
-export const createPlannerMcp = (ctx: Ctx, tabId: string, agent?: string, project: string | null = null) => createSdkMcpServer({ name: ROOT_MCP_NAME, tools: [...plannerItemTools(ctx), uiTool(ctx, tabId), progressTool(ctx, tabId), memorySearchTool(ctx, project), listKanbanTool(ctx), listSprintsTool(ctx), moveKanbanTool(ctx), takeKanbanTool(ctx, { name: agent, tab: tabId }), updateKanbanTool(ctx), ...documentTools(ctx, project), ...kitTools(ctx, tabId)] });
+// open_session lets a work tab hand a separate piece of work to a new tab; it asks before starting one.
+export const createPlannerMcp = (ctx: Ctx, chat: Chat, { id: tabId, title: agent, project = null }: { id: string; title?: string; project?: string | null }) => createSdkMcpServer({ name: ROOT_MCP_NAME, tools: [...plannerItemTools(ctx), uiTool(ctx, tabId), progressTool(ctx, tabId), memorySearchTool(ctx, project), listProjectsTool(ctx), openSessionTool(ctx, chat), ...(ctx.pluginServers?.tools({ scope: 'work', tab: tabId, agent, project }) ?? []), ...documentTools(ctx, project), ...kitTools(ctx, tabId), ...secretTools(ctx, tabId)] });
 
 const PERMISSION_MODE = z.enum(['default', 'acceptEdits', 'auto', 'plan']).optional().describe('Permission mode of the tab. Defaults to the one in settings');
 
@@ -321,7 +324,7 @@ export const createServiceTaskMcp = (ctx: Ctx, chat: Chat, extra: readonly strin
     updateProjectTool(ctx),
     fileNoteTool(ctx),
     ...plannerItemTools(ctx),
-    ...kanbanTools(ctx).filter((t) => t.name !== 'remove_kanban_sprint'), // it asks, and nobody answers a prompt here
+    ...(ctx.pluginServers?.tools({ scope: 'serviceTask', tab: null, project: null }) ?? []), // only what runs without a prompt: nobody answers one here
     ...documentTools(ctx, null),
     openSessionTool(ctx, chat),
     ...[resumeSessionTool(chat), createProjectTool(ctx, chat)].filter((t) => extra.includes(t.name)), // only for a template that asks (MICROTASK_TOOLS)
@@ -373,9 +376,9 @@ export function createRootMcp(ctx: Ctx, chat: Chat, tabId: string, agent?: strin
 
       ...plannerItemTools(ctx),
 
-      ...kanbanTools(ctx, { name: agent, tab: tabId }),
+      ...(ctx.pluginServers?.tools({ scope: 'root', tab: tabId, agent, project: null }) ?? []),
 
-      ...documentTools(ctx, null),
+      ...documentTools(ctx, null), ...secretTools(ctx, tabId),
 
       openSessionTool(ctx, chat),
 

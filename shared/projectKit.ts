@@ -59,6 +59,7 @@ export interface KitPlan {
   planId: string;
   project: string;
   root: string;
+  kitId: string;
   kit: string;
   action: 'install' | 'update' | 'remove';
   files: KitPlanFile[];
@@ -78,14 +79,36 @@ export interface KitLockEntry { wrote: string; render: string; owner?: 'kit' | '
 
 export interface KitLock {
   kit: string;
+  /** The kit plugin; written only for a kit other than DEFAULT_KIT, so locks from before several kits stay byte-identical. */
+  id?: string;
   installedAt: number;
   sizeAtInstall: number;
   files: Record<string, KitLockEntry>;
   settings: { file: string; allow: string[]; deny: string[]; ask: string[]; hooks: string[] };
 }
 
-/** The enabled kit plugin and the installed kit version per project key. */
-export interface KitStatusReport { kit: { id: string; version: string } | null; projects: Record<string, string | null> }
+/** The shipped kit plugin: a lock without an id was written by it, and a new install takes it while it is enabled. */
+export const DEFAULT_KIT = 'project-kit';
+
+export interface KitRef { id: string; version: string }
+
+/** `kit`: the one a new install takes; `kits`: every enabled kit plugin; the installed kit per project key. */
+export interface KitStatusReport { kit: KitRef | null; kits: KitRef[]; projects: Record<string, KitRef | null> }
+
+/** What a kit writes into a project, by kind, from its template index; names without folders and extensions. */
+export interface KitContents { claudeMd: boolean; rules: string[]; agents: string[]; skills: string[]; checks: string[]; hooks: string[]; docs: string[] }
+
+/** A project the kits screen lists: its installed kit, if any. */
+export interface KitProjectRow { key: string; name: string; root: string; kit: KitRef | null; installedAt: number | null }
+
+/** One apply, update or remove, from the audit log (action `project.kit`). */
+export interface KitHistoryEntry { at: number; project: string; kit: string; version: string; action: 'install' | 'update' | 'remove'; files: number }
+
+/** GET /api/project-kit/kits: every plugin folder with a kit (enabled or not), the projects and the history. */
+export interface KitSetsReport { default: string | null; kits: { id: string; contents: KitContents }[]; projects: KitProjectRow[]; history: KitHistoryEntry[] }
+
+/** The kits screen shows at most this many kits; creating one more is refused by the create flow. */
+export const KIT_SETS_MAX = 5;
 
 export type KitHook = 'protect-files' | 'after-edit' | 'stop-gate' | 'briefing';
 export interface KitHookMetric { hook: KitHook; ms: number; ok: boolean; ts: number }
@@ -106,21 +129,3 @@ export interface KitMetricsRow {
   questionLevel: string | null;
   metrics: Record<KitMetric, KitMetricValue>;
 }
-
-/** Manifest section 16 targets, shown next to each metric. */
-export const KIT_TARGETS: Record<KitMetric, string> = {
-  startingContext: '< 20k tokens',
-  cacheHit: '> 85 %',
-  subagentShare: '< 40 %',
-  skillsUsed: '>= 70 %',
-  visibleSkills: '<= 15',
-  loopA50: '< 10 s',
-  loopA90: '< 10 s',
-  loopB50: '< 90 s',
-  loopB90: '< 90 s',
-  redStops: 'trend down',
-  filesOverLimit: '-30 %/month',
-  unpromotedMistakes: '0',
-  patternDebt: '0',
-  questions: 'minimal ≈ 0',
-};

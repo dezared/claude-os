@@ -1,8 +1,8 @@
-// The kanban board, the agents panel and the marks of Claude OS sessions, against e2e/fixture-server.ts.
+// The agents panel, the planner's way to the board, the @ menu and the marks of Claude OS sessions, against e2e/fixture-server.ts.
 import assert from 'node:assert/strict';
 import { after, afterEach, before, test } from 'node:test';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { defaultFixture, homeButton, startFixture, type Fixture, type FixtureServer } from './fixture-server.ts';
+import { defaultFixture, startFixture, type Fixture, type FixtureServer } from './fixture-server.ts';
 
 let browser: Browser;
 let ctx: BrowserContext | null = null;
@@ -35,10 +35,7 @@ async function open(view: unknown, data: Fixture = defaultFixture(), locale = 'r
   return page;
 }
 
-const column = (page: Page, name: string) => page.getByRole('region', { name: `Колонка: ${name}` });
 const card = (page: Page, title: string) => page.locator('[data-card]').filter({ hasText: title });
-const titles = (page: Page, name: string) => column(page, name).locator('[data-card] span.wrap-anywhere').allTextContents();
-const moves = () => fx!.calls.filter((c) => c.path.endsWith('/move')).map((c) => [c.path.split('/')[4], c.body]);
 const menu = (page: Page) => page.locator('[data-context-menu]');
 
 async function until(cond: () => boolean | Promise<boolean>): Promise<void> {
@@ -48,232 +45,6 @@ async function until(cond: () => boolean | Promise<boolean>): Promise<void> {
   }
   assert.ok(await cond());
 }
-
-test('kanban opens from the burger and from Ctrl+K', async () => {
-  const page = await open({ kind: 'sessions' });
-  await page.getByRole('button', { name: 'Меню', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Канбан' }).click();
-  await card(page, 'Обновить брокер').waitFor();
-
-  await homeButton(page).click();
-  await page.keyboard.press('Control+k');
-  await page.getByRole('combobox').fill('Канбан');
-  await page.keyboard.press('Enter');
-  await card(page, 'Обновить брокер').waitFor();
-});
-
-test('a card is created by hand, on the board of a project too, and survives a reload', async () => {
-  const page = await open({ kind: 'kanban', board: 'alpha-service' });
-  await card(page, 'Обновить брокер').waitFor();
-  assert.equal(await card(page, 'Поправить форму оплаты').count(), 0, 'another project stays off this board');
-  await page.getByRole('button', { name: 'Карточка', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Новая карточка' });
-  assert.equal(await dialog.getByRole('button', { name: 'Создать' }).isDisabled(), true);
-  await dialog.getByLabel('Заголовок').fill('Новая задача');
-  await dialog.getByLabel('Описание').fill('Что сделать');
-  await dialog.getByRole('radio', { name: 'высокий' }).click();
-  await dialog.getByRole('button', { name: 'Создать' }).click();
-  await card(page, 'Новая задача').waitFor();
-  const made = fx!.calls.find((c) => c.path === '/api/kanban/cards')!.body as Record<string, unknown>;
-  assert.deepEqual([made.title, made.description, made.project, made.priority], ['Новая задача', 'Что сделать', 'alpha-service', 'high']);
-  await page.reload();
-  await card(page, 'Новая задача').waitFor();
-});
-
-test('drag and drop moves between columns and reorders', async () => {
-  const page = await open({ kind: 'kanban' });
-  await card(page, 'Обновить брокер').waitFor();
-  await card(page, 'Обновить брокер').dragTo(column(page, 'В работе').locator('ul'), { targetPosition: { x: 40, y: 300 } });
-  await until(() => moves().length === 1);
-  assert.deepEqual(moves()[0], ['AS-1', { column: 'doing', before: null }]);
-  assert.deepEqual(await titles(page, 'В работе'), ['Купить домен', 'Обновить брокер']);
-
-  await card(page, 'Обновить брокер').dragTo(card(page, 'Купить домен'), { targetPosition: { x: 20, y: 2 } });
-  await until(() => moves().length === 2);
-  assert.deepEqual(moves()[1], ['AS-1', { column: 'doing', before: 'TASK-3' }]);
-  assert.deepEqual(await titles(page, 'В работе'), ['Обновить брокер', 'Купить домен']);
-  await page.reload();
-  await card(page, 'Обновить брокер').waitFor();
-  assert.deepEqual(await titles(page, 'В работе'), ['Обновить брокер', 'Купить домен']);
-});
-
-test('the keyboard reaches everything: moves keep focus, Enter opens, Delete asks', async () => {
-  const page = await open({ kind: 'kanban' });
-  const first = card(page, 'Обновить брокер');
-  await first.focus();
-  await page.keyboard.press('Shift+ArrowDown');
-  await until(() => moves().length === 1);
-  assert.deepEqual(moves()[0], ['AS-1', { column: 'todo', before: null }]);
-  assert.deepEqual(await titles(page, 'В работу'), ['Поправить форму оплаты', 'Обновить брокер']);
-  await page.keyboard.press('Shift+ArrowUp');
-  await until(() => moves().length === 2);
-  assert.deepEqual(moves()[1], ['AS-1', { column: 'todo', before: 'BW-7' }]);
-
-  await page.keyboard.press('Shift+ArrowRight');
-  await until(async () => (await titles(page, 'В работе')).includes('Обновить брокер'));
-  await until(() => first.evaluate((el) => el === document.activeElement));
-  assert.deepEqual(moves()[2], ['AS-1', { column: 'doing', before: null }]);
-  await page.keyboard.press('Shift+ArrowLeft');
-  await until(async () => (await titles(page, 'В работу')).includes('Обновить брокер'));
-  await until(() => first.evaluate((el) => el === document.activeElement));
-
-  await page.keyboard.press('Enter');
-  const editing = page.getByRole('dialog', { name: 'Карточка' });
-  await editing.getByLabel('Заголовок').fill('Брокер: обновить');
-  await editing.getByRole('button', { name: 'Сохранить' }).click();
-  await card(page, 'Брокер: обновить').waitFor();
-
-  await card(page, 'Брокер: обновить').focus();
-  await page.keyboard.press('Delete');
-  const asking = page.getByRole('dialog', { name: 'Удалить карточку?' });
-  await asking.getByRole('button', { name: 'Удалить' }).click();
-  await until(async () => (await card(page, 'Брокер: обновить').count()) === 0);
-});
-
-test('a late answer about an earlier move does not take the keyboard off the card', async () => {
-  const page = await open({ kind: 'kanban' });
-  const first = card(page, 'Обновить брокер');
-  await first.focus();
-  await page.route('**/api/kanban', async (route) => {
-    const answer = await route.fetch(); // read now, delivered late: this is what makes it stale
-    await new Promise((r) => setTimeout(r, 400));
-    await route.fulfill({ response: answer });
-  });
-  const asked = page.waitForRequest((r) => r.method() === 'GET' && r.url().endsWith('/api/kanban'));
-  await page.keyboard.press('Shift+ArrowDown');
-  await asked; // the answer to this is on its way and knows nothing about the next move
-  await page.keyboard.press('Shift+ArrowRight');
-  await until(() => moves().length === 2);
-  await new Promise((r) => setTimeout(r, 1500));
-  assert.ok((await titles(page, 'В работе')).includes('Обновить брокер'));
-  assert.ok(await first.evaluate((el) => el === document.activeElement));
-});
-
-test('right click: a card goes to a new session of its project; the board goes to Claude', async () => {
-  const page = await open({ kind: 'kanban' });
-  await card(page, 'Обновить брокер').click({ button: 'right' });
-  await menu(page).getByRole('menuitem', { name: 'В новую сессию проекта' }).click();
-  await until(() => fx!.calls.some((c) => /^\/api\/tabs\/[^/]+\/send$/.test(c.path)));
-  const tab = fx!.calls.find((c) => c.path === '/api/tabs' && c.method === 'POST')!.body as { project: string; title: string };
-  assert.deepEqual([tab.project, tab.title], ['alpha-service', 'Обновить брокер']);
-  const sent = fx!.calls.find((c) => /^\/api\/tabs\/[^/]+\/send$/.test(c.path))!.body as { text: string };
-  assert.match(sent.text, /^AS-1: Обновить брокер\n\nДо конца месяца\n\nCard file: .*AS-1\.md/);
-  const took = fx!.calls.find((c) => c.path.endsWith('/take'))!;
-  assert.equal(took.path, '/api/kanban/cards/AS-1/take');
-  assert.equal((took.body as { agent: string }).agent, 'Claude');
-
-  await page.getByRole('button', { name: 'Меню', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Канбан' }).click();
-  await card(page, 'Купить домен').click({ button: 'right' });
-  const noProject = menu(page).getByRole('menuitem', { name: 'В новую сессию проекта' });
-  assert.equal(await noProject.isDisabled(), true, 'a card with no project has no session to go to');
-  await page.keyboard.press('Escape');
-
-  await page.getByRole('region', { name: 'Колонка: Готово' }).click({ button: 'right', position: { x: 60, y: 300 } });
-  await menu(page).getByRole('menuitem', { name: 'Разложить через Claude' }).click();
-  const ask = page.getByRole('dialog', { name: 'Разложить через Claude' });
-  await ask.getByRole('button', { name: 'Разбей большие карточки на части' }).click();
-  await ask.getByText(/add_kanban_card/).first().waitFor();
-  const before = fx!.calls.length;
-  await ask.getByRole('button', { name: 'Отправить' }).click();
-  await until(() => fx!.calls.slice(before).some((c) => c.path === '/api/service/tasks' && c.method === 'POST'));
-});
-
-test('five columns; a card shows its id and the agent that took it', async () => {
-  const page = await open({ kind: 'kanban' });
-  await card(page, 'Обновить брокер').waitFor();
-  for (const name of ['Бэклог', 'В работу', 'В работе', 'Полировка', 'Готово']) await column(page, name).waitFor();
-  assert.equal(await card(page, 'Обновить брокер').locator('[data-card-id]').textContent(), 'AS-1');
-  assert.equal(await card(page, 'Купить домен').locator('[data-card-agent]').textContent(), 'Ревьюер');
-  assert.equal(await card(page, 'Обновить брокер').locator('[data-card-agent]').count(), 0);
-
-  await card(page, 'Обновить брокер').click({ button: 'right' });
-  await menu(page).getByRole('menuitem', { name: 'Упомянуть в чате через @' }).waitFor();
-  await page.keyboard.press('Escape');
-
-  await page.getByRole('button', { name: 'Карточка', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Новая карточка' });
-  await dialog.getByLabel('Заголовок').fill('В бэклог');
-  await dialog.getByLabel('Описание').fill('**важно**');
-  await dialog.getByRole('radio', { name: 'Просмотр' }).click();
-  await dialog.locator('strong').getByText('важно').waitFor();
-  await dialog.getByRole('button', { name: 'Создать' }).click();
-  await column(page, 'Бэклог').locator('[data-card]').filter({ hasText: 'В бэклог' }).waitFor();
-});
-
-test('sprints filter the board, a card changes sprint from its menu; grouping by project draws lanes', async () => {
-  const page = await open({ kind: 'kanban' });
-  await card(page, 'Обновить брокер').waitFor();
-  const switcher = page.getByRole('radiogroup', { name: 'Спринт' });
-  assert.equal(await switcher.count(), 0, 'no sprints, no switcher');
-  const sprint = await (await page.request.post(`${fx!.url}/api/kanban/sprints`, { data: { name: 'Ноябрь' } })).json() as { id: string };
-  await page.request.patch(`${fx!.url}/api/kanban/cards/AS-1`, { data: { sprint: sprint.id } });
-  await page.reload();
-  await switcher.getByRole('radio', { name: 'Ноябрь' }).click();
-  await until(async () => (await page.locator('[data-card]').count()) === 1);
-  await card(page, 'Обновить брокер').waitFor();
-  await switcher.getByRole('radio', { name: 'Без спринта' }).click();
-  await until(async () => (await page.locator('[data-card]').count()) === 2);
-  assert.equal(await card(page, 'Обновить брокер').count(), 0);
-  await card(page, 'Купить домен').click({ button: 'right' });
-  await menu(page).getByRole('menuitem', { name: 'Спринт → Ноябрь' }).click();
-  await until(() => fx!.calls.some((c) => c.path === '/api/kanban/cards/TASK-3' && (c.body as { sprint?: string }).sprint === sprint.id));
-  await until(async () => (await card(page, 'Купить домен').count()) === 0);
-  await switcher.getByRole('radio', { name: 'Все' }).click();
-  await until(async () => (await page.locator('[data-card]').count()) === 3);
-
-  await page.getByRole('heading', { level: 1 }).click({ button: 'right' });
-  await menu(page).getByRole('menuitem', { name: 'Группировать по проектам' }).click();
-  const lane = (name: string) => page.getByRole('region', { name: `Проект: ${name}` });
-  await lane('alpha-service').getByRole('region', { name: 'Колонка: В работу' }).locator('[data-card]').filter({ hasText: 'Обновить брокер' }).waitFor();
-  await lane('beta-web').locator('[data-card]').filter({ hasText: 'Поправить форму оплаты' }).waitFor();
-  await lane('Без проекта').locator('[data-card]').filter({ hasText: 'Купить домен' }).waitFor();
-  assert.equal(await lane('alpha-service').locator('[data-card]').count(), 1);
-  await page.getByRole('heading', { level: 1 }).click({ button: 'right' });
-  await menu(page).getByRole('menuitem', { name: 'Не группировать по проектам' }).click();
-  await until(async () => (await lane('alpha-service').count()) === 0);
-});
-
-test('sprints are made from the board menu, renamed and removed from the menu of their segment', async () => {
-  const page = await open({ kind: 'kanban' });
-  await card(page, 'Обновить брокер').waitFor();
-  const switcher = page.getByRole('radiogroup', { name: 'Спринт' });
-  assert.equal(await switcher.count(), 0, 'nothing on the surface until there is a sprint');
-
-  await page.getByRole('heading', { level: 1 }).click({ button: 'right' });
-  await menu(page).getByRole('menuitem', { name: 'Новый спринт' }).click();
-  const create = page.getByRole('dialog', { name: 'Новый спринт' });
-  await create.getByLabel('Название спринта').fill('Ноябрь');
-  await create.getByRole('button', { name: 'Создать' }).click();
-  await switcher.getByRole('radio', { name: 'Ноябрь' }).waitFor();
-  await create.waitFor({ state: 'detached' });
-  assert.deepEqual(fx!.calls.filter((c) => c.path === '/api/kanban/sprints').map((c) => [c.method, c.body]), [['POST', { name: 'Ноябрь' }]]);
-
-  await switcher.getByRole('radio', { name: 'Ноябрь' }).click({ button: 'right' });
-  await menu(page).getByRole('menuitem', { name: 'Переименовать' }).click();
-  const rename = page.getByRole('dialog', { name: 'Переименовать спринт' });
-  const field = rename.getByLabel('Название спринта');
-  assert.equal(await field.inputValue(), 'Ноябрь');
-  await field.fill('Декабрь');
-  await field.press('Enter');
-  await switcher.getByRole('radio', { name: 'Декабрь' }).waitFor();
-  assert.equal(await switcher.getByRole('radio', { name: 'Ноябрь' }).count(), 0);
-
-  // The segments that are not a sprint have no sprint items.
-  await switcher.getByRole('radio', { name: 'Все' }).click({ button: 'right' });
-  await menu(page).waitFor();
-  assert.equal(await menu(page).getByRole('menuitem', { name: 'Удалить спринт' }).count(), 0);
-  await page.keyboard.press('Escape');
-
-  await switcher.getByRole('radio', { name: 'Декабрь' }).click({ button: 'right' });
-  await menu(page).getByRole('menuitem', { name: 'Удалить спринт' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Удалить спринт «Декабрь»?' });
-  await confirm.getByText('Карточки останутся на доске, без спринта.').waitFor();
-  await confirm.getByRole('button', { name: 'Удалить спринт' }).click();
-  await switcher.waitFor({ state: 'detached' });
-  assert.ok(fx!.calls.some((c) => c.path === '/api/kanban/sprints/S1' && c.method === 'DELETE'));
-  assert.equal(await page.locator('[data-card]').count(), 3, 'the cards stay');
-});
 
 test('the @ menu: the section on top, Space opens it, the search finds by id and title with the own project first, files below', async () => {
   const data = defaultFixture();
@@ -355,20 +126,6 @@ test('interrupting: the job is stopped on the server and the dialog goes', async
   await dialog.getByRole('button', { name: 'Прервать и закрыть' }).click();
   await dialog.waitFor({ state: 'detached' });
   assert.ok(fx!.calls.some((c) => c.path === '/api/service/tasks/dec1/interrupt'));
-});
-
-test('a task prefix changes in the settings of a project', async () => {
-  const page = await open({ kind: 'settings', section: 'projects' });
-  const field = page.getByRole('textbox', { name: 'Префикс задач проекта' });
-  await until(async () => (await field.inputValue()) !== '');
-  const first = await field.inputValue();
-  await field.fill('core');
-  await page.keyboard.press('Enter');
-  await until(() => fx!.calls.some((c) => c.path === '/api/kanban/prefix'));
-  const body = fx!.calls.find((c) => c.path === '/api/kanban/prefix')!.body as { project: string; prefix: string };
-  assert.equal(body.prefix, 'CORE');
-  assert.notEqual(first, 'CORE');
-  await page.getByText('CORE-21').waitFor();
 });
 
 test('agents: list with scope, model and tools, a page, right click, delete naming the file', async () => {
@@ -453,54 +210,16 @@ test('a session of claudeOS/root shows as Claude OS with a tag; levels of change
   const section = page.getByRole('button').filter({ hasText: 'Сессия в root' });
   await section.waitFor();
   assert.ok((await section.textContent())!.includes('правки: root 3'));
-  await page.getByRole('button', { name: 'Канбан' }).click();
+  await page.getByRole('button', { name: 'Kanban+' }).click(); // the board of the project, from the Kanban+ plugin
   await page.getByRole('heading', { name: 'Claude OS' }).waitFor();
-});
-
-test('a level of change: chosen on a card of Claude OS only, shown as a tag, taken away again', async () => {
-  const data = defaultFixture();
-  data.projects.push({ ...data.projects[0], key: 'claudeOS', name: 'Claude OS', root: '/home/test/claudeOS', liveCount: 0 });
-  const page = await open({ kind: 'kanban', board: 'claudeOS' }, data);
-  await page.getByRole('heading', { name: 'Claude OS' }).waitFor();
-  await page.getByRole('button', { name: 'Карточка', exact: true }).click();
-  let dialog = page.getByRole('dialog', { name: 'Новая карточка' });
-  await dialog.getByLabel('Заголовок').fill('Поправить ядро');
-  const level = dialog.getByRole('radiogroup', { name: 'Уровень правки' });
-  await level.getByRole('radio', { name: 'root' }).click();
-  await dialog.getByRole('button', { name: 'Создать' }).click();
-  const made = card(page, 'Поправить ядро');
-  await made.getByText('root', { exact: true }).waitFor();
-  assert.equal((fx!.calls.find((c) => c.path === '/api/kanban/cards')!.body as { level: string }).level, 'root');
-  assert.match((await made.getByText('root', { exact: true }).getAttribute('title'))!, /уровень ядра/i);
-
-  // On the board of all tasks too, with the project beside it.
-  await page.evaluate(() => localStorage.setItem('claude-os.view', JSON.stringify({ kind: 'kanban' })));
-  await page.reload();
-  await made.getByText('Claude OS').waitFor();
-  await made.getByText('root', { exact: true }).waitFor();
-
-  // Another project has no such choice, an old card without the field stays plain.
-  assert.equal(await card(page, 'Обновить брокер').getByText(/^(user|root)$/).count(), 0);
-  await card(page, 'Обновить брокер').click();
-  dialog = page.getByRole('dialog', { name: 'Карточка' });
-  await dialog.getByLabel('Заголовок').waitFor();
-  assert.equal(await dialog.getByRole('radiogroup', { name: 'Уровень правки' }).count(), 0);
-  await dialog.getByRole('button', { name: 'Отмена' }).click();
-
-  // Taken away.
-  await made.click();
-  dialog = page.getByRole('dialog', { name: 'Карточка' });
-  await dialog.getByRole('radio', { name: 'без уровня' }).click();
-  await dialog.getByRole('button', { name: 'Сохранить' }).click();
-  await dialog.waitFor({ state: 'detached' });
-  assert.equal((fx!.calls.findLast((c) => c.method === 'PATCH')!.body as { level: unknown }).level, null);
 });
 
 test('English: the same words exist', async () => {
-  const page = await open({ kind: 'kanban' }, defaultFixture(), 'en-US');
-  await page.getByRole('region', { name: 'Column: In progress' }).waitFor();
-  await page.getByRole('button', { name: 'Card', exact: true }).waitFor();
+  const page = await open({ kind: 'plugin', screen: 'kanban' }, defaultFixture(), 'en-US');
+  await page.getByRole('region', { name: 'Column In progress' }).waitFor();
+  await page.getByRole('button', { name: 'New card', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Menu', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Agents' }).click();
-  await page.getByRole('button', { name: 'Find the agents I need' }).waitFor();
+  await page.getByRole('menuitem', { name: 'Kanban+' }).waitFor();
+  await page.getByRole('menuitem', { name: 'Tools' }).waitFor();
 });
+

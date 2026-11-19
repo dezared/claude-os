@@ -235,7 +235,7 @@ test('settings show the size and remove the model; the mic asks again afterwards
   await page.getByRole('button', { name: MENU }).click();
   await page.getByRole('menuitem', { name: 'Настройки' }).click();
   await page.getByRole('button', { name: 'Голосовой ввод' }).click();
-  await page.getByText('whisper-small').waitFor();
+  await page.getByText('whisper-small').first().waitFor();
   await page.getByText('На диске: 0 МБ').waitFor(); // the fake model is 4 KB
   await page.getByRole('button', { name: 'Удалить модель' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Удалить модель' }).click();
@@ -246,5 +246,50 @@ test('settings show the size and remove the model; the mic asks again afterwards
   await page.getByRole('dialog').getByText('252 МБ').first().waitFor();
   await page.keyboard.press('Escape');
   assert.equal(existsSync(voiceDir()), false, 'closing the dialog downloads nothing');
+  assert.deepEqual(errors, []);
+});
+
+test('settings pick the speech language and another model; the engine gets both, and the model downloads and goes on its own', async () => {
+  await page.getByRole('button', { name: MENU }).click();
+  await page.getByRole('menuitem', { name: 'Настройки' }).click();
+  await page.getByRole('button', { name: 'Голосовой ввод' }).click();
+  const settingsFile = () => JSON.parse(readFileSync(join(dir, 'config/settings.json'), 'utf8'));
+
+  const language = page.getByRole('combobox', { name: 'Язык речи' });
+  await language.getByText('Английский').waitFor(); // no profile here: English until one is picked
+  await language.click();
+  await page.getByRole('option', { name: 'Определять автоматически' }).waitFor();
+  await page.getByRole('option', { name: 'Немецкий' }).click();
+  await language.getByText('Немецкий').waitFor();
+  assert.equal(settingsFile().voice.language, 'de');
+
+  const models = page.getByRole('radiogroup', { name: 'Модель' });
+  assert.equal(await models.getByRole('radio').count(), 3);
+  await models.getByText('1088 МБ').waitFor();
+  await models.getByText('1603 МБ').waitFor();
+  await models.getByRole('radio').nth(1).click();
+  await page.getByText('Не скачана, 1088 МБ').waitFor();
+  assert.equal(await models.getByRole('radio').nth(1).isChecked(), true);
+  assert.equal(settingsFile().voice.model, 'whisper-large-v3-turbo');
+  await page.getByRole('button', { name: 'Включить и скачать' }).click();
+  await page.getByRole('button', { name: 'Удалить модель' }).waitFor();
+  assert.ok(existsSync(join(voiceDir(), 'installed-whisper-large-v3-turbo')));
+  assert.equal(existsSync(join(voiceDir(), 'installed')), false, 'whisper-small stays not downloaded');
+
+  await homeButton(page).click();
+  await mic().click();
+  await stopButton().waitFor();
+  await page.waitForTimeout(1500);
+  await stopButton().click();
+  await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>('textarea')?.value.includes('[whisper-large-v3-turbo de en]'));
+  await box().fill('');
+
+  await page.getByRole('button', { name: MENU }).click();
+  await page.getByRole('menuitem', { name: 'Настройки' }).click();
+  await page.getByRole('button', { name: 'Голосовой ввод' }).click();
+  await page.getByRole('button', { name: 'Удалить модель' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Удалить модель' }).click();
+  await page.getByRole('button', { name: 'Включить и скачать' }).waitFor();
+  assert.equal(existsSync(voiceDir()), false);
   assert.deepEqual(errors, []);
 });

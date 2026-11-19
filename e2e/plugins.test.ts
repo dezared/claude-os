@@ -92,7 +92,10 @@ test('plugins screen: icon, version and description in the row; dependencies in 
   const page = await open({ kind: 'os-plugins' });
   await page.getByText('Контекстный поиск поверх ripgrep').waitFor();
   await page.getByText('1.1.0').first().waitFor();
-  assert.equal(await page.locator('img[src^="data:image/svg+xml"]').count(), 1, 'the manifest icon, through an img');
+  // The manifest icon is a mask in a tile: an image in CSS runs nothing, and the tile paints it.
+  const glyphs = page.locator('[data-icon-tile] .icon-glyph');
+  assert.equal(await glyphs.count(), 1, 'the manifest icon, as a mask');
+  assert.match(await glyphs.first().evaluate((el) => getComputedStyle(el).maskImage), /^url\("data:image\/svg\+xml/);
 
   await page.getByRole('button', { name: 'Включить', exact: true }).nth(2).click();
   const dialog = page.getByRole('dialog');
@@ -115,6 +118,19 @@ test('plugins screen: icon, version and description in the row; dependencies in 
   assert.match((send.body as { text: string }).text, /os-plugin:rg-context:claude-md:start/);
   const tab = fx!.calls.find((c) => c.path === '/api/tabs' && c.method === 'POST');
   assert.deepEqual(tab?.body, { cwd: '/home/test/claude-os', title: 'rg-context: setup', source: 'setup', sourceDetail: 'rg-context' });
+});
+
+test('plugins screen: a plugin the update could not turn on says why on its row and in its page, in the light theme', async () => {
+  fixtureOsPlugins.rows = fixtureOsPlugins.rows.map((r) => (r.id === 'rg-context' ? { ...r, autoEnableFailed: 'skill rg-context already exists' } : r));
+  const page = await open({ kind: 'os-plugins' });
+  await page.evaluate(() => localStorage.setItem('claude-os.theme', 'light'));
+  await page.reload();
+  const line = 'Обновление не смогло включить его само: skill rg-context already exists. Включите его здесь, когда это будет исправлено';
+  await page.getByText(line).waitFor();
+  await page.screenshot({ path: '/tmp/b4fix-plugins-light.png' });
+  await page.getByRole('button', { name: 'rg-context', exact: true }).click();
+  await page.locator('p').getByText(line).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Включить', exact: true }).first().isEnabled(), true, 'it can still be enabled by hand');
 });
 
 test('plugins screen: what is still missing can be set up from the row, not before the button', async () => {
@@ -192,12 +208,12 @@ test('icon picker: from the right-click menu of a project, stored per project, s
   assert.deepEqual(fx!.calls.find((c) => c.path === '/api/project-icons/alpha-service')?.body, { icon: 'map' });
   assert.equal(fixtureIcons.chosen['alpha-service'], 'map');
 
-  // An img can run nothing; the library ink gives way to the colour of the project.
-  const img = row.locator('img[src^="data:image/svg+xml"]');
+  // A mask can run nothing; the library ink gives way to the colour of the project, which the tile paints.
+  const img = row.locator('[data-icon-tile] .icon-glyph');
   await img.waitFor();
-  const src = decodeURIComponent((await img.getAttribute('src'))!);
-  assert.doesNotMatch(src, /#e4e4e7/);
-  assert.match(src, /stroke="rgb\(/);
+  const paint = await img.evaluate((el) => getComputedStyle(el).backgroundColor);
+  assert.match(paint, /^rgb\(/);
+  assert.notEqual(paint, 'rgb(228, 228, 231)');
 
   await rightClick(row);
   await page.getByRole('menuitem', { name: 'Выбрать иконку' }).click();

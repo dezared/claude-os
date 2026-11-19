@@ -18,7 +18,7 @@ export const GATE_STEPS: GateStep[] = [
   { name: 'suppressions', run: [...NODE, 'scripts/gate.ts', 'suppressions'] },
   {
     name: 'unit',
-    run: [...NODE, '--test', '--test-reporter=dot', 'server/**/*.test.ts', 'scripts/**/*.test.ts'],
+    run: [...NODE, '--test', '--test-reporter=dot', 'server/**/*.test.ts', 'scripts/**/*.test.ts', 'plugins/*/server/*.test.ts'],
   },
 ];
 

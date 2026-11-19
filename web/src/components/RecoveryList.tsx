@@ -65,7 +65,7 @@ export function RecoveryList() {
   const items = recovery.data ?? [];
   if (items.length === 0) return null;
   return (
-    <aside role="complementary" aria-label={t('recovery.aria')} className="glass-reading enter-fade absolute bottom-2 left-2 z-30 flex max-h-[50vh] w-[min(320px,calc(100vw-16px))] flex-col overflow-hidden rounded-2xl bg-[#0e0e12]!">
+    <aside role="complementary" aria-label={t('recovery.aria')} className="glass-reading enter-fade absolute bottom-2 left-2 z-30 flex max-h-[50vh] w-[min(320px,calc(100vw-16px))] flex-col overflow-hidden rounded-2xl bg-panel-deep!">
       <header className="flex flex-none items-center gap-2 py-1 pr-1 pl-3">
         <History size={13} className="flex-none text-accent" />
         <strong className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{t('recovery.title')} · {items.length}</strong>

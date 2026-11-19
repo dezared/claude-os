@@ -12,7 +12,7 @@ export interface ServiceTask {
   errorParams?: Record<string, string | number>;
   questions: string[] | null; // asked once, status 'question' until answered
   modal?: boolean; // shown in a dialog that stays until the job is over or is interrupted, not in a floating card
-  link?: string; // the kanban board it fills, for the dialog's way out
+  link?: string; // the project whose board it fills, for the dialog's way out to the plugin screen that shows it
   continuable?: false; // the job already opened a tab with the work (quick start): no "continue in a tab"
   created: number;
 }

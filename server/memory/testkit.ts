@@ -36,7 +36,6 @@ export function makeKit(journal?: Partial<JournalApi>): TestKit {
     claudeJson: join(base, 'claude', '.claude.json'),
     claudeBin: join(base, 'bin', 'claude'),
     vault: join(base, 'vault'),
-    newProjectsDir: join(base, 'new'),
   };
   mkdirSync(paths.data, { recursive: true });
   mkdirSync(paths.claudeDir, { recursive: true });

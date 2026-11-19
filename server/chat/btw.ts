@@ -2,12 +2,15 @@
 // process, its journal and its running turn never hear about it.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import type { BtwEvent, MessageKey } from '../../shared/contract.ts';
+import type { FastifyReply } from 'fastify';
+import type { BtwEvent, BtwTurn } from '../../shared/btw.ts';
+import type { MessageKey } from '../../shared/contract.ts';
 import type { Ctx } from '../context.ts';
 import { ignoredSessions } from '../journal/live.ts';
 import { findJournal } from '../journal/parse.ts';
 import { devIsolation, isProductCwd, type IsolationSettings } from './devIsolation.ts';
 import { promptKindOf, sessionProfileBlock } from './profile.ts';
+import { secretRules } from './secrets.ts';
 
 const MAX_TURNS = '5'; // Read is there, so the answer may take a few steps. This bounds what a side question can spend.
 const STDERR_TAIL = 2000;
@@ -18,9 +21,9 @@ const SIDE_PROMPT = 'The user is asking a quick side question with /btw. Answer 
 
 // Read and not `--tools ""`: a resumed history holds tool calls, and a request with those and no tools may be refused.
 // `profile`: the same profile block the tab's own session has, so the answer comes in the user's language.
-// `isolation`: keeps the dev kit out when the tab is a product session.
-export function btwArgs(resume: string | null, model: string | null, ownId: string, extra: { profile?: string; isolation?: IsolationSettings | null } = {}): string[] {
-  const { profile = '', isolation = null } = extra;
+// `isolation`: keeps the dev kit out when the tab is a product session. `deny`: the rules that keep Read off the /secret store.
+export function btwArgs(resume: string | null, model: string | null, ownId: string, extra: { profile?: string; isolation?: IsolationSettings | null; deny?: string[] } = {}): string[] {
+  const { profile = '', isolation = null, deny = [] } = extra;
   return [
     '-p',
     ...(resume ? ['--resume', resume, '--fork-session'] : []),
@@ -30,12 +33,20 @@ export function btwArgs(resume: string | null, model: string | null, ownId: stri
     '--verbose',
     '--include-partial-messages',
     '--tools', 'Read',
+    ...(deny.length ? ['--disallowedTools', ...deny] : []),
     '--max-turns', MAX_TURNS,
     '--strict-mcp-config',
     '--settings', JSON.stringify({ disableAllHooks: true, ...isolation }),
     '--append-system-prompt', [SIDE_PROMPT, profile].filter(Boolean).join('\n\n'),
     ...(model ? ['--model', model] : []),
   ];
+}
+
+// A follow-up is a new copy each time: the earlier side turns travel in its question, so nothing has to persist.
+export function sideQuestion(question: string, history: BtwTurn[]): string {
+  if (history.length === 0) return question;
+  const turns = history.map((h) => `Question: ${h.question}\nAnswer: ${h.answer}`).join('\n\n');
+  return `Earlier in this side thread:\n\n${turns}\n\nThe question now:\n\n${question}`;
 }
 
 const running = new Set<ChildProcess>();
@@ -55,14 +66,35 @@ type Line = {
 
 type Failure = { error: string } & MessageKey;
 
+type BtwTab = { kind: string; cwd: string; sessionId: string | null; model: string | null };
+export type BtwBody = { Body: { question?: unknown; history?: unknown } | null };
+
+/** The route: a stream of lines, not chat events, so nothing of this reaches the tab's buffer. The child lives as long as the request. */
+export function streamBtw(ctx: Ctx, tab: BtwTab, body: BtwBody['Body'], reply: FastifyReply) {
+  const question = typeof body?.question === 'string' ? body.question.trim() : '';
+  if (!question) return reply.code(400).send({ error: 'Empty question', key: 'emptyQuestion' });
+  const turns = (Array.isArray(body?.history) ? body.history : []) as (Partial<Record<keyof BtwTurn, unknown>> | null)[];
+  const history = turns.filter((h): h is BtwTurn => typeof h?.question === 'string' && typeof h.answer === 'string');
+  reply.hijack();
+  const out = reply.raw;
+  out.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+  const stop = runBtw(ctx, tab, sideQuestion(question, history), (e) => {
+    if (out.writableEnded) return;
+    out.write(`${JSON.stringify(e)}\n`);
+    if ('done' in e) out.end();
+  });
+  out.once('close', stop);
+  return reply;
+}
+
 /** Starts the child and reports through `emit`, the last event has done:true. Returns the way to stop it. */
-export function runBtw(ctx: Ctx, tab: { kind: string; cwd: string; sessionId: string | null; model: string | null }, question: string, emit: (e: BtwEvent) => void): () => void {
+export function runBtw(ctx: Ctx, tab: BtwTab, question: string, emit: (e: BtwEvent) => void): () => void {
   const bin = ctx.paths.claudeBin;
   const ownId = randomUUID();
   ignoredSessions.add(ownId);
   // The id of a tab whose first turn has not reached the disk yet has nothing to resume: a plain one-shot then.
   const resume = tab.sessionId && findJournal(tab.sessionId, tab.cwd, ctx.paths.claudeDir) ? tab.sessionId : null;
-  const args = btwArgs(resume, tab.model, ownId, { profile: sessionProfileBlock(ctx, promptKindOf(ctx.paths, tab)), isolation: isProductCwd(ctx.paths, tab.cwd) ? devIsolation(ctx.paths.repo) : null });
+  const args = btwArgs(resume, tab.model, ownId, { profile: sessionProfileBlock(ctx, promptKindOf(ctx.paths, tab)), isolation: isProductCwd(ctx.paths, tab.cwd) ? devIsolation(ctx.paths.repo) : null, deny: secretRules(ctx) });
   const { CLAUDECODE: _nested, ...env } = process.env;
   const child = /\.m?js$/.test(bin)
     ? spawn(process.execPath, [bin, ...args], { cwd: tab.cwd, env, stdio: 'pipe' })

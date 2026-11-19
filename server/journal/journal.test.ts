@@ -12,7 +12,7 @@ import type { BusEvents, Ctx, Paths } from '../context.ts';
 import { createJournal, hiddenRoot } from './index.ts';
 import { computeLive, mapStatus, procStartOf, type RegistryEntry } from './live.ts';
 import { KNOWN_TYPES, LineSplitter, parseLine, parseRecord, parseTitles, parseToolCalls, parseUsage, readTranscript, recordToChatEvents } from './parse.ts';
-import { classifyDir, createProjects, gitRoot, gitRootAsync } from './projects.ts';
+import { createProjects } from './projects.ts';
 import { initSchema } from './db.ts';
 import { keepPastedTags, stripPastedTags } from '../../shared/pasted.ts';
 
@@ -219,27 +219,6 @@ describe('projects', () => {
     assert.deepEqual([row.name, row.misc], ['Plain!', true]);
   });
 
-  it('the async git lookup agrees with the sync one', async () => {
-    for (const dir of ['repo', 'repo/sub', 'wt', 'clone', 'plain']) assert.equal(await gitRootAsync(join(base, dir)), gitRoot(join(base, dir)), dir);
-    assert.equal(await gitRootAsync(join(base, 'wt')), join(base, 'repo'), 'a worktree answers with its repo');
-  });
-
-  it('classifies a folder: listed, misc, seen, folded by git or by an override, hidden, nothing yet', () => {
-    const row = (key: string, root: string, extra: object = {}) => ({ key, name: key, root, has_git: 0, pinned: 0, removed_at: null, map_pin: null, description: null, color: null, parent: null, folder: 0, misc: false, ...extra });
-    const rows = [row('repo', '/w/repo', { has_git: 1 }), row('w', '/w', { misc: true }), row('pin', '/w/pin', { pinned: 1 }), row('old', '/w/old'), row('forced', '/w/forced')];
-    const listed = new Set(['repo', 'w', 'pin', 'forced']);
-    const facts = (gitTop: string | null = null, forcedRoot: string | null = null, hidden = false) => ({ gitTop, forcedRoot, hidden });
-    assert.deepEqual(classifyDir('/w/repo', facts('/w/repo'), rows, listed), { kind: 'project', project: 'repo', reason: 'git' });
-    assert.deepEqual(classifyDir('/w/repo/sub', facts('/w/repo'), rows, listed), { kind: 'inside', project: 'repo', reason: 'git' });
-    assert.deepEqual(classifyDir('/w', facts(), rows, listed), { kind: 'misc', project: 'w' });
-    assert.deepEqual(classifyDir('/w/pin', facts(), rows, listed), { kind: 'project', project: 'pin', reason: 'connected' });
-    assert.deepEqual(classifyDir('/w/old', facts(), rows, listed), { kind: 'seen', project: 'old' });
-    assert.deepEqual(classifyDir('/w/forced', facts(null, '/w/forced'), rows, listed), { kind: 'project', project: 'forced', reason: 'override' });
-    assert.deepEqual(classifyDir('/w/fold', facts(null, '/w/forced'), rows, listed), { kind: 'inside', project: 'forced', reason: 'override' });
-    assert.deepEqual(classifyDir('/w/root', facts(null, null, true), rows, listed), { kind: 'hidden' });
-    assert.deepEqual(classifyDir('/w/new-repo', facts('/w/new-repo'), rows, listed), { kind: 'none', reason: 'git' });
-    assert.deepEqual(classifyDir('/w/plain', facts(), rows, listed), { kind: 'none' });
-  });
 });
 
 describe('hidden project roots', () => {

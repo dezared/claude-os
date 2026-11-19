@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import type { Project } from '../shared/contract.ts';
 import { mapKeys } from '../web/src/home/universe/selection.ts';
 import { defaultFixture, startFixture, type Fixture, type FixtureServer } from './fixture-server.ts';
 
@@ -250,7 +251,7 @@ test('the Projects screen: from the menu, a tree, changes that stick, nothing lo
   await page.getByRole('button', { name: 'Меню' }).click();
   await page.getByRole('menuitem', { name: 'Проекты' }).click();
   const list = page.getByRole('complementary', { name: 'Проекты' });
-  await list.getByRole('button', { name: 'alpha-service' }).click();
+  await list.getByRole('button', { name: /^alpha-service/ }).click();
   await page.getByRole('heading', { name: 'alpha-service' }).waitFor();
   await shot('projects');
 
@@ -286,11 +287,19 @@ test('the Projects screen: from the menu, a tree, changes that stick, nothing lo
   await page.getByRole('heading', { name: 'beta-web' }).waitFor();
   await page.getByRole('combobox', { name: 'Находится в' }).click();
   await page.getByRole('option', { name: 'alpha-service' }).click();
-  await page.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('aside button')].some((b) => b.textContent?.includes('beta-web') && parseInt(b.style.paddingLeft) > 10));
+  await page.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('aside button')].some((b) => b.textContent?.includes('beta-web') && parseInt(b.style.paddingLeft) > 22));
   assert.equal(data.projects.find((p) => p.key === 'beta-web')!.parent, 'alpha-service');
   await shot('projects-tree');
 
-  await list.getByRole('button', { name: 'alpha-service' }).click();
+  // The folder folds its projects away and brings them back.
+  const fold = list.getByRole('button', { name: 'Что внутри alpha-service' });
+  await fold.click();
+  await list.getByRole('button', { name: 'beta-web' }).waitFor({ state: 'detached' });
+  assert.equal(await fold.getAttribute('aria-expanded'), 'false');
+  await fold.click();
+  await list.getByRole('button', { name: 'beta-web' }).waitFor();
+
+  await list.getByRole('button', { name: /^alpha-service/ }).click();
   await page.getByRole('main').getByRole('button', { name: 'beta-web', exact: true }).waitFor();
 
   // A request to Claude goes through the usual dialog.
@@ -328,31 +337,79 @@ test('a plain folder comes after the projects in the new-tab picker', async () =
   await dialog.waitFor({ state: 'detached' });
 });
 
-test('the structure of the projects folder: kinds, connect a folder, make a project a folder', async () => {
+test('the list is the tree on disk: shared folders fold their projects, a folder picker adds one, a kit mark leads to its kit', async () => {
   onlyAlphaIsFolder();
+  const nested = (key: string, root: string): Project => ({ ...data.projects.find((p) => p.key === 'delta-bot')!, key, name: key, root, liveCount: 0 });
+  data.projects.push(nested('csfail-backend', '/home/test/work/csfail/backend'), nested('csfail-bot', '/home/test/work/csfail/inner/bot'), nested('csfail-mcp', '/home/test/work/csfail/inner/mcp'));
+  fx.push({ t: 'invalidate', topics: ['projects'] });
   await page.getByRole('button', { name: 'Меню' }).first().click(); // the title bar's; a project page has its own
   await page.getByRole('menuitem', { name: 'Проекты' }).click();
-  await page.getByRole('button', { name: 'Структура' }).click();
-  const tree = page.getByRole('list', { name: 'Структура' });
-  const row = (name: string) => tree.getByRole('listitem').filter({ has: page.getByText(name, { exact: true }) });
-  await row('src').getByText('Внутри alpha-service').waitFor();
-  await row('alpha-service').getByText('Просто папка').waitFor();
-  await row('gamma-tools').getByText('Проект', { exact: true }).waitFor();
-  await tree.getByRole('listitem').filter({ hasText: '…' }).waitFor();
-  await shot('projects-structure');
+  const aside = page.getByRole('complementary', { name: 'Проекты' });
+  const list = aside.getByRole('list', { name: 'Проекты' });
+  assert.equal(await page.getByRole('button', { name: 'Структура' }).count(), 0, 'no separate structure view');
+  assert.equal(await aside.getByText('Папки на диске').count(), 0, 'no folders-on-disk panel');
 
-  await row('fresh-folder').getByRole('button', { name: 'Подключить' }).click();
-  await row('fresh-folder').getByRole('button', { name: 'Сделать папкой' }).click();
-  await row('fresh-folder').getByText('Просто папка').waitFor();
+  // A chain of single folders is one row; a folder two projects share is a row of its own; each level shifts right.
+  const indent = (name: string) => list.getByRole('button', { name, exact: true }).evaluate((b) => parseInt((b as HTMLElement).style.paddingLeft));
+  await list.getByRole('button', { name: 'work/csfail', exact: true }).waitFor();
+  await list.getByRole('button', { name: 'inner', exact: true }).waitFor();
+  const [top, inner, bot] = [await indent('work/csfail'), await indent('inner'), await indent('csfail-bot')];
+  assert.ok(top < inner && inner < bot, `${top} < ${inner} < ${bot}`);
+  assert.equal(await indent('csfail-backend'), inner);
+  await shot('projects-tree-disk');
+
+  // Folded stays folded when the screen comes back.
+  await list.getByRole('button', { name: 'Что внутри work/csfail' }).click();
+  await list.getByRole('button', { name: 'csfail-backend' }).waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Меню' }).first().click();
+  await page.getByRole('menuitem', { name: 'Инструменты' }).click();
+  await aside.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Меню' }).first().click();
+  await page.getByRole('menuitem', { name: 'Проекты' }).click();
+  await list.getByRole('button', { name: 'work/csfail', exact: true }).waitFor();
+  assert.equal(await list.getByRole('button', { name: 'csfail-backend' }).count(), 0, 'still folded');
+  await list.getByRole('button', { name: 'Что внутри work/csfail' }).click();
+  await list.getByRole('button', { name: 'csfail-backend' }).waitFor();
+
+  // Add a project: the folder picker, then the new row in the list.
+  await aside.getByRole('button', { name: 'Добавить проект' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Подключить папку как проект' });
+  await dialog.getByRole('combobox').fill('/home/test/fr');
+  await dialog.getByRole('option', { name: '/home/test/fresh-folder' }).click();
+  await dialog.getByRole('button', { name: 'Подключить' }).click();
+  await dialog.waitFor({ state: 'detached' });
+  await list.getByRole('button', { name: 'fresh-folder' }).waitFor();
+  assert.equal(data.projects.find((p) => p.key === 'fresh-folder')?.root, '/home/test/fresh-folder');
+
+  // The kind is a right-click away in the list.
+  await list.getByRole('button', { name: 'fresh-folder' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Сделать папкой' }).click();
+  for (let i = 0; i < 100 && !data.projects.find((p) => p.key === 'fresh-folder')?.folder; i++) await page.waitForTimeout(50);
   assert.equal(data.projects.find((p) => p.key === 'fresh-folder')?.folder, true);
-  assert.equal(await row('alpha-service').getByRole('button', { name: 'Сделать папкой' }).count(), 0, 'already a folder');
+  await list.getByRole('button', { name: 'fresh-folder' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Сделать проектом' }).click();
+  for (let i = 0; i < 100 && data.projects.find((p) => p.key === 'fresh-folder')?.folder; i++) await page.waitForTimeout(50);
+  assert.equal(data.projects.find((p) => p.key === 'fresh-folder')?.folder, false);
 
-  // A project in the list leaves the structure for its page.
-  await page.getByRole('complementary', { name: 'Проекты' }).getByRole('button', { name: 'gamma-tools' }).click();
-  await page.getByRole('heading', { name: 'gamma-tools' }).waitFor();
+  // The kit a project is built on: a coloured mark with the kit and its contents on hover, the kits screen on a click.
+  await list.getByRole('button', { name: 'beta-web' }).click();
+  await page.getByRole('main').getByRole('button', { name: 'Без набора' }).waitFor();
+  await list.getByRole('button', { name: /^gamma-tools/ }).click();
+  await page.getByRole('main').getByRole('button', { name: 'project-kit', exact: true }).waitFor();
+  const mark = list.getByRole('button', { name: 'Набор «project-kit»' });
+  await mark.hover();
+  await page.getByText('Правила: 2').waitFor();
+  await shot('projects-kit');
+  await mark.click();
+  await page.getByRole('heading', { name: 'Наборы проектов' }).waitFor();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('claude-os.view') ?? '{}').id), 'project-kit');
+  data.projects = data.projects.filter((p) => !p.key.startsWith('csfail-'));
+  fx.push({ t: 'invalidate', topics: ['projects'] });
+  await page.getByRole('button', { name: 'Меню' }).first().click();
+  await page.getByRole('menuitem', { name: 'Проекты' }).click();
 
   // Claude OS itself: no kind switch, the name stays a heading.
-  await page.getByRole('complementary', { name: 'Проекты' }).getByRole('button', { name: 'eta-infra' }).click();
+  await list.getByRole('button', { name: /^eta-infra/ }).click();
   await page.getByRole('heading', { name: 'eta-infra' }).click();
   assert.equal(await page.getByRole('radio', { name: 'Просто папка' }).count(), 0);
   assert.equal(await page.getByRole('textbox', { name: 'Имя проекта' }).count(), 0);

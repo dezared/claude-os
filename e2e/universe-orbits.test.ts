@@ -75,6 +75,6 @@ test('the core: its notes lie around the nucleus, without a drawn figure', () =>
     const d = Math.hypot(l.stars[i].x - core.x, l.stars[i].z - core.z);
     assert.ok(d >= core.r * 0.41 && d <= core.r * 1.01, `a star of the core at ${d}`);
   }
-  assert.ok(!l.skeleton.some(([a]) => l.stars[a].c === l.constellations.indexOf(core)), 'the core is not a constellation');
-  assert.ok(l.skeleton.length > 0, 'the others still are');
+  assert.ok(!l.spokes.some(([c]) => c === l.constellations.indexOf(core)), 'the core is not a constellation');
+  assert.ok(l.spokes.length > 0, 'the others still are');
 });

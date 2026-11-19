@@ -30,6 +30,7 @@ An array; the server reads it on every request, no restart.
 - `command`: a bash script. The tab's folder and session id arrive as `$1` and `$2`, never pasted into the text, so quote them (`"$1"`).
 - `cwd` (optional): where it runs. `{project}` is the project's root, `{cwd}` the tab's folder, or an absolute path. Absent: the tab's folder, else the Claude OS root.
 - `confirm` (optional): `true` asks before every run, in a popover showing the command. The server does not enforce it: it is for something the person should not run by accident.
+- `bar` (optional): `false` keeps the action off the bar of work tabs. For a command a widget's view runs through `POST /api/actions/<id>/run` (a toggle on the home screen); approval works the same.
 
 ## Approval
 

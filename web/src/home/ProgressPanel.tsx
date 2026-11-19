@@ -44,12 +44,12 @@ function Row({ row: { tab, progress, leaving } }: { row: ProgressRow }) {
   return (
     <div data-progress-row={tab.id} data-state={state} data-own-menu className={cn('progress-row', leaving && 'is-leaving')}>
       <ContextArea className="min-h-0 overflow-hidden" items={() => [{ id: 'progress.dismiss', label: t('progress.dismiss'), icon: X, onSelect: dismiss }]}>
-        <button type="button" disabled={leaving} onClick={() => go(tab.kind === 'root' ? { kind: 'home' } : { kind: 'tab', id: tab.id })} className="press block w-full rounded-lg px-1.5 py-1 text-left transition-colors duration-150 hover:bg-white/5">
+        <button type="button" disabled={leaving} onClick={() => go(tab.kind === 'root' ? { kind: 'home' } : { kind: 'tab', id: tab.id })} className="press block w-full rounded-lg px-1.5 py-1 text-left transition-colors duration-150 hover:bg-fg/5">
           <span className="flex items-baseline gap-2">
             <span className="min-w-0 flex-1 truncate text-[12.5px] text-soft" title={title}>{title}</span>
             <span aria-hidden className="progress-num flex-none text-[11px] text-muted" style={{ '--pct': percent } as CSSProperties} />
           </span>
-          <span role="progressbar" aria-label={title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="mt-1 block h-1 overflow-hidden rounded-full bg-white/10">
+          <span role="progressbar" aria-label={title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="mt-1 block h-1 overflow-hidden rounded-full bg-fg/10">
             <i className={cn('progress-fill block h-full origin-left rounded-full', LOOK[state].fill)} style={{ '--ratio': percent / 100 } as CSSProperties} />
           </span>
           <span className="mt-0.5 flex items-baseline gap-2 text-[11px]">

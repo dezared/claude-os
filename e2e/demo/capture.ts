@@ -36,7 +36,7 @@ async function shoot(browser: Browser, fx: FixtureServer, scene: Scene): Promise
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   fixtureSettings.obsidian.dismissed = true;
-  fixtureSettings.profile = { name: 'Alex', language: 'en', projectsDir: '/home/test', questionLevel: 'balanced' };
+  fixtureSettings.profile = { name: 'Alex', language: 'en', questionLevel: 'balanced' };
   fixtureSettings.setup = { step: 'done', completedAt: Date.now(), tabId: null };
   const data = defaultFixture();
   toDemo(data);

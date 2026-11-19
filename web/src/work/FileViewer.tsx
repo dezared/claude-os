@@ -3,10 +3,12 @@ import { create } from 'zustand';
 import { ErrorState, Skeleton } from '@/components/states';
 import { Dialog } from '@/components/ui';
 import { imageUrl, isImagePath } from '@/lib/filePaths';
+import { useLast } from '@/lib/motion';
 import { t } from '@/lib/i18n';
 import type { ProjectFile } from '@/lib/types';
 import { PluginBoundary, pluginOpensMedia, useUiPlugins } from '@/lib/uiPlugins';
 import { Code, fmtBytes, useFetched } from './FilesPanel';
+import { ZoomImage } from './ZoomImage';
 
 const LINE_PX = 12 * 1.55; // the font and line height of Code
 const PAD_PX = 8;
@@ -60,19 +62,22 @@ function Viewer({ tabId, path, line }: { tabId: string; path: string; line: numb
 
 /** One for the whole app: opened from any chat, the root one and a subagent's view included. */
 export function FileViewer() {
-  const file = useViewer((s) => s.file);
-  const image = useViewer((s) => s.image);
+  const open = useViewer((s) => s.file);
+  const shown = useViewer((s) => s.image);
+  // Closing, the dialog leaves with what it showed: the subject is gone from the store before the exit is over.
+  const file = useLast(open);
+  const image = useLast(shown);
   const [broken, setBroken] = useState<string | null>(null);
   return (
     <>
-      <Dialog open={file !== null} onOpenChange={(v) => { if (!v) useViewer.setState({ file: null }); }} title={file?.path ?? ''} width={960}>
+      <Dialog open={open !== null} onOpenChange={(v) => { if (!v) useViewer.setState({ file: null }); }} title={file?.path ?? ''} width={960}>
         {file && <div className="-m-4 flex h-[75vh] min-h-0 flex-col"><Viewer key={`${file.tabId}:${file.path}`} {...file} /></div>}
       </Dialog>
-      <Dialog open={image !== null} onOpenChange={(v) => { if (!v) useViewer.setState({ image: null }); }} title={image?.title ?? ''} width={1400}>
+      <Dialog open={shown !== null} onOpenChange={(v) => { if (!v) useViewer.setState({ image: null }); }} title={image?.title ?? ''} width={1400}>
         {image && (broken === image.src ? (
           <p role="alert" className="text-xs text-muted">{t('chat.imageFailed')}</p>
         ) : (
-          <img src={image.src} alt={image.title} onError={() => setBroken(image.src)} className="mx-auto max-h-[calc(100vh-180px)] max-w-full object-contain" />
+          <ZoomImage key={image.src} src={image.src} alt={image.title} onError={() => setBroken(image.src)} />
         ))}
       </Dialog>
     </>

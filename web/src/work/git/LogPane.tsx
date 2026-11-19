@@ -18,9 +18,9 @@ const x = (lane: number) => lane * LANE + 7;
 
 const labelTone: Record<GitRefLabel['kind'], string> = {
   head: 'border-accent-deep bg-accent-bg text-accent',
-  local: 'border-emerald-500/30 text-emerald-200',
-  remote: 'border-sky-500/30 text-sky-200',
-  tag: 'border-amber-500/30 text-amber-200',
+  local: 'border-emerald-500/30 text-emerald-200 light:text-emerald-700',
+  remote: 'border-sky-500/30 text-sky-200 light:text-sky-700',
+  tag: 'border-amber-500/30 text-amber-200 light:text-amber-700',
 };
 
 function Graph({ row, lanes }: { row: GraphRow; lanes: number }) {
@@ -36,7 +36,7 @@ function Graph({ row, lanes }: { row: GraphRow; lanes: number }) {
 
 const LogRow = memo(function LogRow({ c, row, lanes, active, onOpen }: { c: GitLogCommit; row: GraphRow; lanes: number; active: boolean; onOpen: (hash: string) => void }) {
   return (
-    <button type="button" aria-pressed={active} onClick={() => onOpen(c.hash)} style={{ height: ROW }} className={cn('press flex w-full min-w-0 items-center gap-1.5 pr-2 pl-1 text-left text-[12px]', active ? 'bg-white/[.1]' : 'hover:bg-raised')}>
+    <button type="button" aria-pressed={active} onClick={() => onOpen(c.hash)} style={{ height: ROW }} className={cn('press flex w-full min-w-0 items-center gap-1.5 pr-2 pl-1 text-left text-[12px]', active ? 'bg-fg/[.1]' : 'hover:bg-raised')}>
       <Graph row={row} lanes={lanes} />
       {c.refs.map((r) => <span key={`${r.kind}${r.name}`} title={r.name} className={cn('max-w-32 flex-none truncate rounded border px-1 font-mono text-[10px] leading-[1.45]', labelTone[r.kind])}>{r.name}</span>)}
       <span className="min-w-0 flex-1 truncate text-soft" title={c.subject}>{c.subject}</span>

@@ -14,21 +14,28 @@ const KIT = { id: 'project-kit', dir: join(import.meta.dirname, '..', '..', 'plu
 const dirs: string[] = [];
 after(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-function setup(gate: (root: string) => Promise<string> = async () => 'gate: green') {
+function setup(gate: (root: string) => Promise<string> = async () => 'gate: green', mode: string | null = 'default') {
   const root = copyFixture('go');
   const kit = makeKit({ projectForCwd: () => 'proj' });
   dirs.push(root, kit.base);
   // The card of a kit_apply call waits in tab-1 while the user looks at it.
   let cardPlan = '';
   const pendingPermission = (requestId: string) => (requestId === 'card' ? { tool: KIT_APPLY_TOOL, input: { planId: cardPlan } } : null);
-  kit.ctx.chat = { tabInfo: () => ({ cwd: root, project: 'proj', kind: 'work' }), get: () => ({ pendingPermission }) } as unknown as ChatApi;
-  kit.ctx.kit = createProjectKit(kit.ctx, () => KIT, gate);
+  const tab = {
+    row: { permissionMode: mode },
+    warnings: [] as { text: string; key: string }[],
+    pendingPermission,
+    async applyPermissionMode(next: string) { tab.row.permissionMode = next; },
+    warn(body: { text: string; key: string }) { tab.warnings.push(body); },
+  };
+  kit.ctx.chat = { tabInfo: () => ({ cwd: root, project: 'proj', kind: 'work' }), get: () => tab } as unknown as ChatApi;
+  kit.ctx.kit = createProjectKit(kit.ctx, () => [KIT], gate);
   const [planTool, applyTool] = kitTools(kit.ctx, 'tab-1');
   const approve = (planId: string, shownPlan = planId) => {
     cardPlan = shownPlan;
     return kit.app.inject({ method: 'POST', url: `/api/project-kit/plans/${planId}/approve`, payload: { requestId: 'card' } });
   };
-  return { root, kit, approve, plan: () => call(planTool, {}), apply: (planId: string) => call(applyTool, { planId }) };
+  return { root, kit, tab, approve, plan: () => call(planTool, {}), apply: (planId: string) => call(applyTool, { planId }) };
 }
 
 type KitTool = ReturnType<typeof kitTools>[number];
@@ -43,7 +50,7 @@ test('kit_plan returns a summary and kit_apply refuses a plan the card did not a
   const { root, approve, plan, apply } = setup();
   const summary = await plan();
   assert.equal(summary.isError, false);
-  assert.match(summary.text, /^plan \S+: install kit 1\.0\.0 in /);
+  assert.match(summary.text, /^plan \S+: install kit project-kit 1\.0\.0 in /);
   assert.match(summary.text, /^add \d+:$/m);
   assert.match(summary.text, /^ {2}\.claude\/kit\/kit\.json$/m);
   const planId = planIdOf(summary.text);
@@ -63,7 +70,44 @@ test('kit_plan returns a summary and kit_apply refuses a plan the card did not a
   assert.deepEqual(await apply(planId), { text: 'no such plan; call kit_plan again', isError: true });
 
   const again = await plan();
-  assert.match(again.text, /^plan \S+: update kit 1\.0\.0 in .+\nnothing to do$/);
+  assert.match(again.text, /^plan \S+: update kit project-kit 1\.0\.0 in .+\nnothing to do$/);
+});
+
+test('kit_plan switches a tab that would not show the plan card to the Default mode, and the card still approves', async () => {
+  for (const mode of ['auto', 'dontAsk', 'bypassPermissions']) {
+    const { root, kit, tab, approve, plan, apply } = setup(undefined, mode);
+    const summary = await plan();
+    assert.equal(summary.isError, false);
+    assert.match(summary.text, new RegExp(`\\nthis tab was switched from ${mode} to the Default mode: the user approves the plan on its card$`));
+    assert.equal(tab.row.permissionMode, 'default');
+    assert.deepEqual(kit.audits, [{ action: 'tab.mode', target: 'tab-1', diff: `${mode} -> default (project kit)` }]);
+    assert.deepEqual(tab.warnings.map((w) => w.key), ['kitAskMode']);
+
+    // Ruling R4 holds: the switch only lets the card appear, and nothing but the card approves.
+    const planId = planIdOf(summary.text);
+    assert.deepEqual(await apply(planId), { text: NOT_APPROVED, isError: true });
+    assert.equal(existsSync(join(root, '.claude')), false);
+    await approve(planId);
+    assert.equal((await apply(planId)).isError, false);
+  }
+});
+
+test('kit_plan leaves a tab that asks, plans or accepts edits in its mode', async () => {
+  for (const mode of ['default', 'acceptEdits', 'plan', null]) {
+    const { kit, tab, plan } = setup(undefined, mode);
+    assert.doesNotMatch((await plan()).text, /switched/);
+    assert.equal(tab.row.permissionMode, mode);
+    assert.deepEqual([kit.audits, tab.warnings], [[], []]);
+  }
+});
+
+test('kit_plan that fails switches nothing', async () => {
+  const { kit, tab } = setup(undefined, 'auto');
+  kit.ctx.kit = { ...kit.ctx.kit!, plan: () => { throw new Error('enable the project-kit plugin first'); } };
+  const [planTool] = kitTools(kit.ctx, 'tab-1');
+  assert.deepEqual(await call(planTool, {}), { text: 'enable the project-kit plugin first', isError: true });
+  assert.equal(tab.row.permissionMode, 'auto');
+  assert.deepEqual(kit.audits, []);
 });
 
 test('kit_apply clips the gate output to 60 lines', async () => {

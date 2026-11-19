@@ -13,7 +13,7 @@ function AuditRow({ e }: { e: AuditEntry }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="border-t border-line2">
-      <button type="button" aria-expanded={e.diff ? open : undefined} disabled={!e.diff} onClick={() => setOpen(!open)} className="press flex w-full items-center gap-3 py-1.5 text-left text-xs enabled:hover:bg-white/[.04]">
+      <button type="button" aria-expanded={e.diff ? open : undefined} disabled={!e.diff} onClick={() => setOpen(!open)} className="press flex w-full items-center gap-3 py-1.5 text-left text-xs enabled:hover:bg-fg/[.04]">
         <ChevronRight size={11} className={cn('flex-none text-dim transition-transform duration-150', open && 'rotate-90', !e.diff && 'opacity-0')} />
         <span className="w-28 flex-none text-dim">{fmtDateTime(e.at)}</span>
         <span className="w-44 flex-none truncate text-muted">{e.action}</span>

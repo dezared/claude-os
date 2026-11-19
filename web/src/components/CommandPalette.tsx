@@ -1,11 +1,12 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { BarChart3, Bot, Boxes, FileText, Library, FolderGit2, FolderPlus, History, Home as HomeIcon, Layers, MessageSquare, NotebookPen, Plus, Search, SquareKanban, Wrench } from 'lucide-react';
+import { BarChart3, Bot, Boxes, FileText, Library, FolderGit2, FolderPlus, History, Home as HomeIcon, Layers, LayoutTemplate, MessageSquare, NotebookPen, Plus, Search, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useApi } from '@/lib/api';
 import { cn, statusLabel } from '@/lib/format';
-import { useApp } from '@/lib/store';
+import { useApp, type View } from '@/lib/store';
 import { openProject } from '@/lib/tabs';
 import type { PlannerNote, Project, Tab } from '@/lib/types';
+import { usePluginScreens } from '@/lib/uiPlugins';
 import { t } from '@/lib/i18n';
 import { Snippet, useMemorySearch } from '@/lib/useMemorySearch';
 
@@ -32,6 +33,27 @@ function norm(s: string) {
   return s.toLowerCase().replace(/[-_]/g, ' ');
 }
 
+/** The app's screens, in the palette's sections group. */
+function sectionCommands(go: (v: View) => void): Cmd[] {
+  return [
+    { id: 'sessions', group: 'sections', label: t('palette.allSessions'), icon: <History size={14} />, run: () => go({ kind: 'sessions' }) },
+    { id: 'projects', group: 'sections', label: t('nav.projects'), icon: <Layers size={14} />, run: () => go({ kind: 'projects' }) },
+    { id: 'analytics', group: 'sections', label: t('palette.analytics'), icon: <BarChart3 size={14} />, run: () => go({ kind: 'analytics' }) },
+    { id: 'documents', group: 'sections', label: t('documents.title'), icon: <Library size={14} />, run: () => go({ kind: 'documents' }) },
+    { id: 'agents', group: 'sections', label: t('tools.agents'), icon: <Bot size={14} />, run: () => go({ kind: 'tools', pane: 'agents' }) },
+    { id: 'skills', group: 'sections', label: t('palette.skills'), icon: <Wrench size={14} />, run: () => go({ kind: 'tools', pane: 'skills' }) },
+    { id: 'mcp', group: 'sections', label: t('palette.mcp'), icon: <Wrench size={14} />, run: () => go({ kind: 'tools', pane: 'mcp' }) },
+    { id: 'os-plugins', group: 'sections', label: t('tools.osPlugins'), icon: <Boxes size={14} />, run: () => go({ kind: 'os-plugins' }) },
+    { id: 'kits', group: 'sections', label: t('kits.title'), icon: <LayoutTemplate size={14} />, run: () => go({ kind: 'kits' }) },
+  ];
+}
+
+/** The screens plugins add, as sections. */
+function usePluginScreenCmds(): Cmd[] {
+  const screens = usePluginScreens();
+  return useMemo(() => screens.map((s) => ({ id: `plugin:${s.id}`, group: 'sections', label: s.title, icon: <s.icon size={14} />, run: () => useApp.getState().go({ kind: 'plugin', screen: s.id }) })), [screens]);
+}
+
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen);
   const setOpen = useApp((s) => s.setPalette);
@@ -40,6 +62,7 @@ export function CommandPalette() {
   const planner = useApi<{ notes: PlannerNote[] }>(open ? '/api/planner' : null, ['planner']).data;
   const [q, setQ] = useState('');
   const hits = useMemorySearch(open ? q : '', 12);
+  const screens = usePluginScreenCmds();
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -64,15 +87,8 @@ export function CommandPalette() {
       { id: 'new', group: 'actions', label: t('nav.newTab'), icon: <Plus size={14} />, run: () => openNewTab() },
       { id: 'planner', group: 'actions', label: t('palette.openPlanner'), icon: <NotebookPen size={14} />, run: () => openPlanner() },
       { id: 'connect', group: 'actions', label: t('connect.action'), icon: <FolderPlus size={14} />, run: () => useApp.getState().setConnectOpen(true) },
-      { id: 'sessions', group: 'sections', label: t('palette.allSessions'), icon: <History size={14} />, run: () => go({ kind: 'sessions' }) },
-      { id: 'projects', group: 'sections', label: t('nav.projects'), icon: <Layers size={14} />, run: () => go({ kind: 'projects' }) },
-      { id: 'analytics', group: 'sections', label: t('palette.analytics'), icon: <BarChart3 size={14} />, run: () => go({ kind: 'analytics' }) },
-      { id: 'kanban', group: 'sections', label: t('nav.kanban'), icon: <SquareKanban size={14} />, run: () => go({ kind: 'kanban' }) },
-      { id: 'documents', group: 'sections', label: t('documents.title'), icon: <Library size={14} />, run: () => go({ kind: 'documents' }) },
-      { id: 'agents', group: 'sections', label: t('tools.agents'), icon: <Bot size={14} />, run: () => go({ kind: 'tools', pane: 'agents' }) },
-      { id: 'skills', group: 'sections', label: t('palette.skills'), icon: <Wrench size={14} />, run: () => go({ kind: 'tools', pane: 'skills' }) },
-      { id: 'mcp', group: 'sections', label: t('palette.mcp'), icon: <Wrench size={14} />, run: () => go({ kind: 'tools', pane: 'mcp' }) },
-      { id: 'os-plugins', group: 'sections', label: t('tools.osPlugins'), icon: <Boxes size={14} />, run: () => go({ kind: 'os-plugins' }) },
+      ...sectionCommands(go),
+      ...screens,
     );
     for (const p of projects) {
       out.push({ id: `p:${p.key}`, group: 'projects', label: p.name, hint: p.liveCount > 0 ? t('palette.active') : undefined, icon: <FolderGit2 size={14} />, run: () => void openProject(p.key) });
@@ -94,7 +110,7 @@ export function CommandPalette() {
       out.push({ id: `pl:${n.id}`, group: 'planner', label: n.title, hint: n.topic ?? undefined, icon: <NotebookPen size={14} />, run: () => openPlanner(n.id) });
     }
     return out;
-  }, [tabs, projects, hits, planner]);
+  }, [tabs, projects, hits, planner, screens]);
 
   const results = useMemo(() => {
     const terms = norm(q).split(/\s+/).filter(Boolean);
@@ -126,8 +142,8 @@ export function CommandPalette() {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay data-covers-map className="no-drag fixed inset-0 z-50 bg-black/50" />
-        <DialogPrimitive.Content aria-describedby={undefined} className="fixed top-[14vh] left-1/2 z-50 flex max-h-[62vh] w-[min(600px,calc(100vw-48px))] -translate-x-1/2 flex-col overflow-hidden popover rounded-2xl outline-none">
+        <DialogPrimitive.Overlay data-covers-map className="no-drag enter-overlay fixed inset-0 z-50 bg-black/50 light:bg-black/25" />
+        <DialogPrimitive.Content aria-describedby={undefined} className="enter-dialog fixed top-[14vh] left-1/2 z-50 flex max-h-[62vh] w-[min(600px,calc(100vw-48px))] -translate-x-1/2 flex-col overflow-hidden popover rounded-2xl outline-none">
           <DialogPrimitive.Title className="sr-only">{t('palette.title')}</DialogPrimitive.Title>
           <div className="flex flex-none items-center gap-2 border-b border-line2 px-3.5">
             <Search size={14} className="flex-none text-dim" />

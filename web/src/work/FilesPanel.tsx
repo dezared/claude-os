@@ -1,16 +1,20 @@
-import { AtSign, ChevronRight, FileText, Folder, PanelLeftClose, PanelLeftOpen, RefreshCw, X } from 'lucide-react';
-import { memo, useEffect, useState } from 'react';
+import { AtSign, ChevronRight, FileText, Folder, FolderRoot, PanelLeftClose, PanelLeftOpen, RefreshCw, X } from 'lucide-react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { claudeItems, ContextArea } from '@/components/ContextMenu';
+import { Fold } from '@/components/Motion';
 import { ErrorState, Skeleton } from '@/components/states';
 import { IconButton } from '@/components/ui';
 import type { MenuItem } from '@/home/ActionMenu';
-import { api } from '@/lib/api';
+import { api, peekCached, useApi } from '@/lib/api';
+import type { ChatState } from '@/lib/chat';
 import { cn } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { toast, usePersisted } from '@/lib/store';
 import type { FileEntry, ProjectFile, Tab } from '@/lib/types';
 import { pluginFileIcon, pluginFileMenu, PluginBoundary, pluginOpensMedia, useUiPlugins } from '@/lib/uiPlugins';
 import { dragMention, tagInChat } from '@/notes/mention';
+import { RootBar, useTreeRoot } from './FilesRoot';
+import { inFolder } from '../../../shared/files.ts';
 
 const INDENT = 12;
 
@@ -25,65 +29,104 @@ const tag = (path: string) => {
 
 /** Fetched on the spot and again on every `refresh`: a tree and a file change while Claude works. */
 export function useFetched<T>(path: string, refresh: string): { data: T | null; error: string | null; retry: () => void } {
-  const [state, setState] = useState<{ data: T | null; error: string | null }>({ data: null, error: null });
+  // Tagged with the path it came for: a refresh keeps it on screen, another file does not show the last one's text.
+  const [state, setState] = useState<{ path: string; data: T | null; error: string | null }>({ path, data: null, error: null });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let stale = false;
     api<T>(path).then(
-      (data) => !stale && setState({ data, error: null }),
-      (e: Error) => !stale && setState((s) => ({ data: s.data, error: e.message })),
+      (data) => !stale && setState({ path, data, error: null }),
+      (e: Error) => !stale && setState((s) => ({ path, data: s.path === path ? s.data : null, error: e.message })),
     );
     return () => {
       stale = true;
     };
   }, [path, refresh, attempt]);
-  return { ...state, retry: () => setAttempt((n) => n + 1) };
+  const own = state.path === path;
+  return { data: own ? state.data : null, error: own ? state.error : null, retry: () => setAttempt((n) => n + 1) };
 }
 
-function Row({ tabId, entry, depth, refresh, opened, onOpen, project }: { tabId: string; entry: FileEntry; depth: number; refresh: string; opened: string | null; onOpen: (path: string) => void; project: string | null }) {
+// What changes files on disk. Other tools only read, so their results do not refresh the tree.
+const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash']);
+
+/** Finished file-changing tool calls: the tree refreshes after each one, not only when the turn ends. */
+export function fileChanges(chat: ChatState): number {
+  let n = 0;
+  for (const item of chat.items) {
+    if (item.k !== 'assistant') continue;
+    for (const b of item.blocks) if (b.type === 'tool_use' && FILE_TOOLS.has(b.name) && chat.results[b.id]) n++;
+  }
+  return n;
+}
+
+/**
+ * A level comes from the shared cache: opened again it shows what it had at once and checks in the background, and a
+ * refresh keeps the rows on screen until the new list arrives. Only the very first load of a folder shows a skeleton.
+ */
+function useLevel(path: string, refresh: string) {
+  const q = useApi<FileEntry[]>(path);
+  const { refetch } = q;
+  const mounted = useRef(false);
+  useEffect(() => {
+    // A first load is already on its way from useApi.
+    if (mounted.current || peekCached(path) !== undefined) refetch();
+    mounted.current = true;
+  }, [path, refresh, refetch]);
+  return q;
+}
+
+type LevelProps = { tabId: string; cwd: string; root: string | null; onRoot: (root: string) => void; depth: number; refresh: string; opened: string | null; onOpen: (path: string) => void; project: string | null };
+
+function Row({ entry, ...level }: LevelProps & { entry: FileEntry }) {
+  const { tabId, depth, opened, onOpen, project, onRoot } = level;
   const [expanded, setExpanded] = useState(false);
   const plugins = useUiPlugins();
+  // Outside the session's folder a path relative to it would point elsewhere: chat, plugins and the viewer get it absolute.
+  const path = level.root ? inFolder(level.root, entry.path) : entry.path;
   const items: MenuItem[] = [
-    { id: 'files.tag', label: t('files.tag'), icon: AtSign, onSelect: () => tag(entry.path) },
-    ...pluginFileMenu(plugins, { path: entry.path, dir: entry.dir }, { tabId }),
-    ...claudeItems({ kind: entry.dir ? 'project folder' : 'project file', name: entry.path, project }),
+    { id: 'files.tag', label: t('files.tag'), icon: AtSign, onSelect: () => tag(path) },
+    // The root bar takes absolute paths only: a row of the session's own folder is relative to the cwd.
+    ...(entry.dir ? [{ id: 'files.openAsRoot', label: t('files.openAsRoot'), icon: FolderRoot, onSelect: () => onRoot(inFolder(level.root ?? level.cwd, entry.path)) }] : []),
+    ...pluginFileMenu(plugins, { path, dir: entry.dir }, { tabId }),
+    ...claudeItems({ kind: entry.dir ? 'project folder' : 'project file', name: path, project }),
   ];
   return (
     <>
       <ContextArea items={items} className="block">
         <div
           draggable
-          data-file-row={entry.path}
-          onDragStart={(e) => dragMention(e, entry.path)}
-          className={cn('group flex items-center rounded-md pr-0.5 hover:bg-raised', opened === entry.path && 'bg-raised')}
+          data-file-row={path}
+          onDragStart={(e) => dragMention(e, path)}
+          className={cn('flex items-center rounded-md pr-0.5 hover:bg-raised', opened === path && 'bg-raised')}
           style={{ paddingLeft: depth * INDENT + 4 }}
         >
           <button
             type="button"
             aria-expanded={entry.dir ? expanded : undefined}
-            onClick={() => (entry.dir ? setExpanded(!expanded) : onOpen(entry.path))}
-            title={entry.size === null ? entry.path : `${entry.path} · ${fmtBytes(entry.size)}`}
-            className={cn('press flex min-w-0 flex-1 items-center gap-1 py-0.5 text-left text-[12px]', opened === entry.path ? 'text-fg' : 'text-muted hover:text-fg')}
+            onClick={() => (entry.dir ? setExpanded(!expanded) : onOpen(path))}
+            title={entry.size === null ? path : `${path} · ${fmtBytes(entry.size)}`}
+            className={cn('press flex min-w-0 flex-1 items-center gap-1 py-0.5 text-left text-[12px]', opened === path ? 'text-fg' : 'text-muted hover:text-fg')}
           >
             {entry.dir ? <ChevronRight size={12} className={cn('flex-none text-dim transition-transform duration-100', expanded && 'rotate-90')} /> : <span className="w-3 flex-none" />}
-            {pluginFileIcon(plugins, { name: entry.name, path: entry.path, dir: entry.dir, expanded }) ?? (entry.dir ? <Folder size={12} className="flex-none text-dim" /> : <FileText size={12} className="flex-none text-dim" />)}
+            {pluginFileIcon(plugins, { name: entry.name, path, dir: entry.dir, expanded }) ?? (entry.dir ? <Folder size={12} className="flex-none text-dim" /> : <FileText size={12} className="flex-none text-dim" />)}
             <span className="min-w-0 truncate">{entry.name}</span>
           </button>
-          <IconButton label={t('files.tag')} className="size-5 flex-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100" onClick={() => tag(entry.path)}><AtSign size={11} /></IconButton>
         </div>
       </ContextArea>
-      {expanded && <Level tabId={tabId} path={entry.path} depth={depth + 1} refresh={refresh} opened={opened} onOpen={onOpen} project={project} />}
+      <Fold show={expanded}>
+        <Level {...level} path={entry.path} depth={depth + 1} />
+      </Fold>
     </>
   );
 }
 
-function Level({ tabId, path, depth, refresh, opened, onOpen, project }: { tabId: string; path: string; depth: number; refresh: string; opened: string | null; onOpen: (path: string) => void; project: string | null }) {
-  const query = path ? `?path=${encodeURIComponent(path)}` : '';
-  const { data, error, retry } = useFetched<FileEntry[]>(`/api/tabs/${encodeURIComponent(tabId)}/tree${query}`, refresh);
-  if (error && !data) return <div className="p-2"><ErrorState message={error} onRetry={retry} /></div>;
+function Level({ path, ...level }: LevelProps & { path: string }) {
+  const query = new URLSearchParams({ ...(level.root && { root: level.root }), ...(path && { path }) }).toString();
+  const { data, error, refetch } = useLevel(`/api/tabs/${encodeURIComponent(level.tabId)}/tree${query ? `?${query}` : ''}`, level.refresh);
+  if (error && !data) return <div className="p-2"><ErrorState message={error} onRetry={refetch} /></div>;
   if (!data) return <Skeleton className="p-2" lines={3} />;
-  if (data.length === 0) return <div className="py-0.5 text-[11px] text-dim" style={{ paddingLeft: depth * INDENT + 20 }}>{t('files.empty')}</div>;
-  return data.map((e) => <Row key={e.path} tabId={tabId} entry={e} depth={depth} refresh={refresh} opened={opened} onOpen={onOpen} project={project} />);
+  if (data.length === 0) return <div className="py-0.5 text-[11px] text-dim" style={{ paddingLeft: level.depth * INDENT + 20 }}>{t('files.empty')}</div>;
+  return data.map((e) => <Row key={e.path} {...level} entry={e} />);
 }
 
 /** Line numbers and code in two blocks, not a node per line: a big file stays cheap to scroll. */
@@ -99,14 +142,13 @@ export const Code = memo(function Code({ text }: { text: string }) {
 });
 
 function FileView({ tabId, path, refresh, onClose }: { tabId: string; path: string; refresh: string; onClose: () => void }) {
-  const { data, error, retry } = useFetched<ProjectFile>(`/api/tabs/${encodeURIComponent(tabId)}/file?path=${encodeURIComponent(path)}`, refresh);
-  const file = data?.path === path ? data : null;
+  const { data: file, error, retry } = useFetched<ProjectFile>(`/api/tabs/${encodeURIComponent(tabId)}/file?path=${encodeURIComponent(path)}`, refresh);
   const plugins = useUiPlugins();
   const PluginView = plugins.find((c) => c.fileView)?.fileView;
   const media = pluginOpensMedia(plugins, path);
   const [width, setWidth] = useState<number | null>(null);
   return (
-    <div role="region" aria-label={t('files.viewAria', { path })} style={PluginView && width ? { width } : undefined} className="flex w-[clamp(320px,30vw,720px)] min-w-0 flex-none flex-col border-l border-line2">
+    <div role="region" aria-label={t('files.viewAria', { path })} style={PluginView && width ? { width } : undefined} className="slide-in-end flex w-[clamp(320px,30vw,720px)] min-w-0 flex-none flex-col border-l border-line2">
       <header className="flex flex-none items-center gap-1 border-b border-line2 py-1 pr-1 pl-3">
         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-soft" title={path}>{path}</span>
         {file && <span className="flex-none text-[11px] text-dim">{fmtBytes(file.size)}</span>}
@@ -138,6 +180,7 @@ export function FilesPanel({ tab, turnKey }: { tab: Tab; turnKey: string }) {
   const [open, setOpen] = usePersisted('claude-os.files-open', true);
   const [opened, setOpened] = useState<string | null>(null);
   const [manual, setManual] = useState(0);
+  const [root, setRoot] = useTreeRoot(tab.id);
   const refresh = `${turnKey}|${manual}`;
 
   if (!open) {
@@ -149,14 +192,15 @@ export function FilesPanel({ tab, turnKey }: { tab: Tab; turnKey: string }) {
   }
   return (
     <div className="hidden min-h-0 flex-none border-r border-line2 app:flex">
-      <nav aria-label={t('files.title')} className="flex w-56 min-w-0 flex-none flex-col">
+      <nav aria-label={t('files.title')} className="slide-in-start flex w-56 min-w-0 flex-none flex-col">
         <header className="flex flex-none items-center gap-0.5 border-b border-line2 py-1 pr-1 pl-3">
           <span className="min-w-0 flex-1 truncate text-xs text-muted">{t('files.title')}</span>
           <IconButton label={t('files.refresh')} className="size-6" onClick={() => setManual((n) => n + 1)}><RefreshCw size={12} /></IconButton>
           <IconButton label={t('files.hide')} className="size-6" onClick={() => setOpen(false)}><PanelLeftClose size={13} /></IconButton>
         </header>
+        <RootBar tabId={tab.id} root={root} onRoot={setRoot} />
         <div className="min-h-0 flex-1 overflow-auto p-1">
-          <Level tabId={tab.id} path="" depth={0} refresh={refresh} opened={opened} onOpen={setOpened} project={tab.project} />
+          <Level key={root ?? ''} tabId={tab.id} cwd={tab.cwd} root={root} onRoot={setRoot} path="" depth={0} refresh={refresh} opened={opened} onOpen={setOpened} project={tab.project} />
         </div>
       </nav>
       {opened && <FileView tabId={tab.id} path={opened} refresh={refresh} onClose={() => setOpened(null)} />}

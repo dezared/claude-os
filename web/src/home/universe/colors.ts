@@ -1,6 +1,6 @@
 // Every project gets its own cosmic colour, stable by key. #d97757 stays the UI accent: the hues around it are not used.
 import type { UniverseOptions, UniverseTheme } from '../../lib/types';
-import { hash32 } from './layout';
+import { hash01, hash32 } from './hash.ts';
 
 export type Rgb = [number, number, number];
 
@@ -24,14 +24,28 @@ function slotColor(slot: number): Rgb {
   return hsl(hue, 0.88, cold ? 0.79 : 0.7);
 }
 
-// Star temperatures, from blue to red, the common ones in the middle.
-const TEMPERATURES: Rgb[] = [[0.68, 0.8, 1], [0.86, 0.9, 1], [1, 0.97, 0.9], [1, 0.97, 0.9], [1, 0.9, 0.68], [1, 0.74, 0.5], [1, 0.58, 0.48]];
-const TINT = 0.36; // the project's colour keeps the upper hand: a cluster still reads as one project
+function toHsl([r, g, b]: Rgb): [number, number, number] {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
 
-/** A star's own colour: its project's, warmed or cooled by a temperature that comes from the note's id. */
+const LIGHT_SPREAD = 0.2; // a note's lightness around its project's
+const SAT_SPREAD = 0.3; // and its saturation, as a share
+const HUE_SPREAD = 10; // degrees: still the project's hue
+
+/** A star's own colour: its project's hue, a lighter or deeper shade of it that comes from the note's id. */
 export function starColor(project: Rgb, id: string): Rgb {
-  const t = TEMPERATURES[hash32(id, 33) % TEMPERATURES.length];
-  return [project[0] * (1 - TINT) + t[0] * TINT, project[1] * (1 - TINT) + t[1] * TINT, project[2] * (1 - TINT) + t[2] * TINT];
+  const [h, s, l] = toHsl(project);
+  const dh = (hash01(id, 33) - 0.5) * HUE_SPREAD;
+  const ds = 1 + (hash01(id, 34) - 0.5) * SAT_SPREAD;
+  const dl = (hash01(id, 35) - 0.5) * LIGHT_SPREAD;
+  return hsl((h + dh + 360) % 360, Math.min(1, s * ds), Math.max(0.35, Math.min(0.9, l + dl)));
 }
 
 const SLOT_COLORS = Array.from({ length: SLOTS }, (_, slot) => slotColor(slot));

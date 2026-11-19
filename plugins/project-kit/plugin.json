@@ -18,6 +18,7 @@
   "icon": "layout-template",
   "version": "1.0.0",
   "author": "Claude OS",
+  "enabledByDefault": true,
   "contains": {
     "kit": "kit"
   }

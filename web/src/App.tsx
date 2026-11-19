@@ -1,6 +1,8 @@
-import { KeyRound, WifiOff } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { KeyRound } from 'lucide-react';
+import { ConnectionBar } from '@/components/ConnectionBar';
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from 'react';
 import { AskClaudeDialog } from './components/AskClaudeDialog';
+import { BtwWindow } from './components/BtwWindow';
 import { CommandPalette } from './components/CommandPalette';
 import { ConnectFolderDialog } from './components/ConnectFolderDialog';
 import { ContextMenuHost } from './components/ContextMenu';
@@ -26,10 +28,10 @@ import { restartServer } from './lib/crash';
 import { cn } from './lib/format';
 import { t } from './lib/i18n';
 import { useKitStatus } from './lib/projectKit';
-import { toastError, useApp } from './lib/store';
+import { toastError, useApp, type View } from './lib/store';
 import { reopenClosedTab } from './lib/tabs';
 import type { AppStatus, Tab } from './lib/types';
-import { PluginOverlays, useUiPluginLoader } from './lib/uiPlugins';
+import { PluginOverlays, PluginScreenView, useUiPluginLoader } from './lib/uiPlugins';
 import { FileViewer } from './work/FileViewer';
 import { WorkView } from './work/WorkView';
 
@@ -40,8 +42,9 @@ const ToolsView = lazy(() => import('./screens/Tools').then((m) => ({ default: m
 const OsPluginsView = lazy(() => import('./screens/OsPlugins').then((m) => ({ default: m.OsPluginsView })));
 const SettingsView = lazy(() => import('./screens/SettingsScreen').then((m) => ({ default: m.SettingsView })));
 const EntityPage = lazy(() => import('./screens/EntityPage').then((m) => ({ default: m.EntityPage })));
-const KanbanBoard = lazy(() => import('./screens/KanbanBoard').then((m) => ({ default: m.KanbanBoard })));
 const DocumentsScreen = lazy(() => import('./documents/DocumentsScreen').then((m) => ({ default: m.DocumentsScreen })));
+// The screens drawn on a sheet over the home sky.
+const SHEETS = new Set<View['kind']>(['sessions', 'analytics', 'tools', 'os-plugins', 'kits', 'settings', 'entity', 'documents', 'projects', 'plugin']);
 const ProjectsView = lazy(() => import('./screens/ProjectsScreen').then((m) => ({ default: m.ProjectsView })));
 
 // Moving the screen behind an open modal would leave it talking about a place no longer in view.
@@ -120,7 +123,7 @@ function StaleServerBar() {
   };
   // Home lets clicks through the chrome to the canvas: the bar takes its own back.
   return (
-    <div role="status" style={{ pointerEvents: 'auto' }} className="flex flex-none items-center gap-3 border-b border-line2 bg-[#2a170f] px-4 py-1 text-xs text-soft">
+    <div role="status" style={{ pointerEvents: 'auto' }} className="flex flex-none items-center gap-3 border-b border-line2 bg-banner px-4 py-1 text-xs text-soft">
       <span className="min-w-0 truncate">{status.data.busy ? t('crash.staleBusy') : t('crash.staleHint')}</span>
       <button type="button" disabled={restarting} onClick={restart} className="press ml-auto flex-none rounded border border-line px-2 py-0.5 hover:text-fg disabled:opacity-60">{restarting ? t('crash.restarting') : t('crash.restart')}</button>
     </div>
@@ -144,12 +147,12 @@ export function Unauthorized() {
 export function App() {
   const view = useApp((s) => s.view);
   const unauthorized = useApp((s) => s.unauthorized);
-  const connection = useApp((s) => s.connection);
   useShortcuts();
   useUiPluginLoader();
   useKitStatus(); // the project menus read it on a right click
   const home = view.kind === 'home' && !unauthorized;
-  useEffect(() => {
+  // A layout effect: a view transition (lib/viewTransition.ts) captures the new view right after the synchronous render.
+  useLayoutEffect(() => {
     document.body.classList.toggle('on-home', home);
   }, [home]);
 
@@ -158,12 +161,7 @@ export function App() {
   return (
     <div className={cn('app-root flex h-full min-h-0 flex-col', view.kind === 'home' && 'on-home')}>
       <TitleBar />
-      {connection === 'offline' && (
-        <div role="status" className="flex flex-none items-center gap-2 border-b border-line2 bg-[#2a170f] px-4 py-1 text-xs text-soft">
-          <WifiOff size={12} className="text-accent" />
-          {t('app.offline')}
-        </div>
-      )}
+      <ConnectionBar edge="top" />
       <StaleServerBar />
       <ObsidianNotice />
       <ProjectIconsOffer />
@@ -178,18 +176,18 @@ export function App() {
             <WorkView activeId={view.id} />
           </div>
         )}
-        {(view.kind === 'sessions' || view.kind === 'analytics' || view.kind === 'tools' || view.kind === 'os-plugins' || view.kind === 'settings' || view.kind === 'entity' || view.kind === 'kanban' || view.kind === 'documents' || view.kind === 'projects') && (
+        {SHEETS.has(view.kind) && (
           <div className="sheet">
             <Suspense fallback={<Skeleton className="p-6" lines={8} />}>
               {view.kind === 'sessions' && <SessionsView project={view.project ?? null} />}
               {view.kind === 'analytics' && <AnalyticsView />}
-              {view.kind === 'tools' && <ToolsView pane={view.pane ?? 'skills'} />}
+              {(view.kind === 'tools' || view.kind === 'kits') && <ToolsView view={view} />}
               {view.kind === 'os-plugins' && <OsPluginsView />}
               {view.kind === 'settings' && <SettingsView section={view.section ?? 'general'} />}
               {view.kind === 'entity' && <EntityPage type={view.type} id={view.id} project={view.project} />}
-              {view.kind === 'kanban' && <KanbanBoard board={view.board} />}
               {view.kind === 'documents' && <DocumentsScreen project={view.project} pane={view.pane} />}
               {view.kind === 'projects' && <ProjectsView selected={view.key} />}
+              {view.kind === 'plugin' && <PluginScreenView id={view.screen} arg={view.arg} />}
             </Suspense>
           </div>
         )}
@@ -204,6 +202,7 @@ export function App() {
       <ConnectFolderDialog />
       <MicrotaskDialog />
       <AskClaudeDialog />
+      <BtwWindow contextId={view.kind === 'tab' ? view.id : null} />
       <RemoveDialogs />
       <IconPicker />
       <FileViewer />

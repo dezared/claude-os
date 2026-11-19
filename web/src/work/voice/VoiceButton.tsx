@@ -14,11 +14,11 @@ const problemKey: Record<MicProblem, Key> = { denied: 'voice.denied', nodevice: 
 
 export const fmtMb = (bytes: number) => `${Math.round(bytes / 1_000_000)} ${t('voice.mb')}`;
 
-export function DownloadProgress({ status }: { status: VoiceStatus }) {
+export function DownloadProgress({ status }: { status: Pick<VoiceStatus, 'downloaded' | 'modelBytes'> }) {
   const percent = Math.min(100, Math.round(((status.downloaded ?? 0) / status.modelBytes) * 100));
   return (
     <div role="progressbar" aria-label={t('voice.downloading')} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} className="flex items-center gap-2.5">
-      <span className="block h-1 min-w-24 flex-1 overflow-hidden rounded-[2px] bg-white/[.07]">
+      <span className="block h-1 min-w-24 flex-1 overflow-hidden rounded-[2px] bg-fg/[.07]">
         <i className="block h-full rounded-[2px] bg-accent transition-[width] duration-200" style={{ width: `${percent}%` }} />
       </span>
       <span className="flex-none text-xs text-muted tabular-nums">{percent}% · {fmtMb(status.downloaded ?? 0)} / {fmtMb(status.modelBytes)}</span>
@@ -175,7 +175,7 @@ export function VoiceButton({ box, onText, onPreview = onText, onBusy, itemsMode
         <IconButton
           label={t('voice.byItems')}
           aria-pressed={byItems}
-          className={cn('size-6', byItems ? 'text-accent!' : 'text-white')}
+          className={cn('size-6', byItems ? 'text-accent!' : 'text-white light:text-fg')}
           onClick={() => setByItems(!byItems)}
         >
           <ListPlus size={13} />

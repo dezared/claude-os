@@ -474,7 +474,7 @@ test('a command block waits for approval; changed by description with its own co
   assert.ok((homePuts().at(-1)!.body as { hidden: string[] }).hidden.includes('w1'));
 });
 
-test('a widget has its icon and description, is developed with Claude in Claude OS, goes out as .md and comes back from it', async () => {
+test('a widget has its icon and description, no develop button, goes out as .md and comes back from it', async () => {
   const data = defaultFixture();
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#e4e4e7"><path d="M2 6h20v12H2z"/></svg>';
   Object.assign(data.widgets.defs[0], { icon: 'ticket', iconSvg: svg, description: 'Открытые тикеты из **трекера**', action: { label: 'Разобрать', cwd: '/home/test/alpha-service', prompt: 'разбери тикеты' } });
@@ -488,12 +488,12 @@ test('a widget has its icon and description, is developed with Claude in Claude 
   assert.equal(await projects.locator('.widget-desc').count(), 0, 'a built-in keeps its body clean');
   assert.match((await projects.locator('[data-widget-grip]').getAttribute('title'))!, /Проекты с сессиями Claude Code/, 'its description is the tooltip of its title');
 
-  // The arrow is the state: always on screen. The develop button waits for the hand.
+  // The arrow is the state: always on screen. The title bar holds nothing that opens a tab.
   await page.mouse.move(800, 120);
   const toggle = tickets.getByRole('button', { name: 'Свернуть виджет Открытые тикеты' });
-  const dev = tickets.getByRole('button', { name: 'Разработать с Claude' });
   assert.equal(await toggle.evaluate((e) => getComputedStyle(e).opacity), '1');
-  assert.equal(await dev.evaluate((e) => getComputedStyle(e).opacity), '0');
+  await tickets.hover();
+  assert.equal(await tickets.getByRole('button', { name: 'Разработать с Claude' }).count(), 0);
 
   await page.getByText('Открытые тикеты', { exact: true }).click({ button: 'right' });
   await contextMenu(page).getByRole('menuitem', { name: 'Скопировать как .md' }).click();
@@ -519,19 +519,6 @@ test('a widget has its icon and description, is developed with Claude in Claude 
   assert.ok((created.body as { prompt: string }).prompt.includes('tickets --count'));
   assert.equal(fx!.calls.filter((c) => c.method === 'POST' && c.path === '/api/widgets').length, 0, 'the code goes through Claude and the approval, never straight in');
 
-  await tickets.hover();
-  await page.waitForFunction((e) => getComputedStyle(e!).opacity === '1', await dev.elementHandle(), { timeout: 5000 });
-  await dev.click();
-  const isSend = (c: { method: string; path: string }) => c.method === 'POST' && /^\/api\/tabs\/[^/]+\/send$/.test(c.path);
-  for (let i = 0; i < 100 && !fx!.calls.some(isSend); i++) await page.waitForTimeout(50);
-  const made = fx!.calls.find((c) => c.method === 'POST' && c.path === '/api/tabs')!;
-  assert.equal((made.body as { cwd: string }).cwd, '/home/test/claude-os', 'in the root of the Claude OS repository');
-  assert.deepEqual([(made.body as { source: string }).source, (made.body as { sourceDetail: string }).sourceDetail], ['widget', 'w1']);
-  const sent = fx!.calls.find(isSend)!;
-  const prompt = (sent.body as { text: string }).text;
-  assert.match(prompt, /plugins\/os-builder\/skills\/claude-os-widgets\/SKILL\.md/);
-  assert.match(prompt, /"id":"w1"/);
-  assert.doesNotMatch(prompt, /iconSvg|<svg/, 'the entry as it is in the file');
   assert.deepEqual(errors, []);
 });
 

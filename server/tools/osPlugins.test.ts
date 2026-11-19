@@ -15,6 +15,7 @@ import { createMcp } from './mcp.ts';
 import { MANIFEST, createOsPlugins, validateManifest } from './osPlugins.ts';
 import { createSkills } from './skills.ts';
 import { revealArgv } from './platform.ts';
+import { XLSX, zip } from './fixtures/workbooks.ts';
 import { mediaType } from './projectFiles.ts';
 import { renderLibraryIcon, sanitizeSvg } from './projectIcons.ts';
 
@@ -329,14 +330,19 @@ describe('plugins over the API', () => {
       assert.equal((await kit.app.inject({ url: ui.url })).statusCode, 200);
     });
 
-    it('a shipped plugin changed by an update stops running until it is reviewed again', async () => {
+    it('a shipped plugin changed by an update keeps running its new code under a new url', async () => {
       const shipped = uiPlugin(kit.paths.plugins);
       await enable('p');
-      assert.equal((await ok<OsPluginUi[]>('GET', '/api/os-plugins/ui')).length, 1);
+      const [before] = await ok<OsPluginUi[]>('GET', '/api/os-plugins/ui');
       kit.write(join(shipped, 'ui', 'index.js'), 'export const activate = () => ({ updated: true });\n');
       const [row] = await rows();
       assert.deepEqual([row.source, row.enabled, row.changed], ['shipped', true, true]);
-      assert.deepEqual(await ok<OsPluginUi[]>('GET', '/api/os-plugins/ui'), []);
+      const [after] = await ok<OsPluginUi[]>('GET', '/api/os-plugins/ui');
+      assert.notEqual(after.url, before.url);
+      const served = await kit.app.inject({ url: after.url });
+      assert.equal(served.statusCode, 200);
+      assert.match(served.body, /updated: true/);
+      assert.equal((await kit.app.inject({ url: before.url })).statusCode, 404);
     });
 
     it('the disable plan names the folder the interface code runs from', async () => {
@@ -494,7 +500,7 @@ describe('plugins over the API', () => {
   });
 
   describe('update', () => {
-    it('replaces what was installed with the folder as it is now, and starts running it again', async () => {
+    it('replaces what was installed with the folder as it is now, and keeps running it meanwhile', async () => {
       fakeClaude();
       const dir = plugin('upd', { version: '1.0.0', contains: { skills: ['helper'], ui: { entry: 'ui/index.js' } } });
       kit.write(join(dir, 'ui', 'index.js'), 'export const activate = () => ({});\n');
@@ -504,7 +510,7 @@ describe('plugins over the API', () => {
 
       kit.write(join(dir, MANIFEST), JSON.stringify(manifest({ id: 'upd', version: '1.1.0', contains: { skills: ['helper'], ui: { entry: 'ui/index.js' } } })));
       kit.write(join(dir, 'skills', 'helper', 'SKILL.md'), '---\nname: helper\ndescription: Helps more\n---\nnew body\n');
-      assert.deepEqual(await ok<OsPluginUi[]>('GET', '/api/os-plugins/ui'), [], 'a changed folder stops counting');
+      assert.equal((await ok<OsPluginUi[]>('GET', '/api/os-plugins/ui')).length, 1, 'a changed folder keeps running');
       const [changed] = (await ok<OsPluginsReport>('GET', '/api/os-plugins')).rows;
       assert.deepEqual([changed.changed, changed.installedVersion, changed.version], [true, '1.0.0', '1.1.0']);
 
@@ -561,6 +567,16 @@ describe('plugins over the API', () => {
       assert.equal((await get('tone.wav', 'bytes=-12')).headers['content-range'], 'bytes 100-111/112');
       assert.equal((await get('tone.wav', 'bytes=500-')).statusCode, 416);
       assert.equal((await get('../outside.png')).statusCode >= 400, true);
+
+      writeFileSync(join(cwd, 'doc.pdf'), '%PDF-1.4\n%%EOF\n');
+      assert.deepEqual([(await get('doc.pdf')).statusCode, (await get('doc.pdf')).headers['content-type']], [200, 'application/pdf']);
+      writeFileSync(join(cwd, 'book.xlsx'), zip(XLSX));
+      const sheet = await kit.app.inject({ url: `/api/tabs/${id}/sheet?path=book.xlsx` });
+      assert.equal(sheet.statusCode, 200);
+      assert.equal(sheet.json().sheets[0].rows[0][0], 'Name');
+      assert.equal((await kit.app.inject({ url: `/api/tabs/${id}/sheet?path=secret.mp4` })).statusCode, 415);
+      await ok('POST', '/api/os-plugins/face/disable', { confirmed: true, sha: (await preview('face', 'disable')).sha });
+      assert.equal((await kit.app.inject({ url: `/api/tabs/${id}/sheet?path=book.xlsx` })).statusCode, 403);
     });
     it('knows the common formats by their first bytes', () => {
       const of = (...b: (number | string)[]) => mediaType(Buffer.concat(b.map((x) => (typeof x === 'string' ? Buffer.from(x, 'latin1') : Buffer.from([x])))));
@@ -574,6 +590,7 @@ describe('plugins over the API', () => {
       assert.equal(of(0xff, 0xfb, 0x90), 'audio/mpeg');
       assert.equal(of(0xff, 0xf1), 'audio/aac');
       assert.equal(of(0, 0, 1, 0), 'image/x-icon');
+      assert.equal(of('%PDF-1.7\n'), 'application/pdf');
       assert.equal(of('hello world'), null);
     });
   });
@@ -624,21 +641,19 @@ describe('plugins over the API', () => {
       assert.equal((await write()).status, 403);
     });
 
-    it('changed after enabling, it stops running until it is reviewed again', async () => {
+    it('changed after enabling, it keeps running its new code with the permissions of its current manifest', async () => {
       const dir = uiPlugin();
       await toggle('enable');
       const [ui] = await list();
-      kit.write(join(dir, 'ui', 'index.js'), 'export const activate = () => { steal(); };\n');
-      assert.deepEqual(await list(), []);
+      kit.write(join(dir, 'ui', 'index.js'), 'export const activate = () => ({ updated: true });\n');
+      const [now] = await list();
+      assert.notEqual(now.url, ui.url);
       assert.equal(await status(ui.url), 404);
-      assert.equal((await write()).status, 403);
+      assert.match((await kit.app.inject({ url: now.url })).body, /updated: true/);
+      assert.notEqual((await write()).status, 403);
+      kit.write(join(dir, MANIFEST), JSON.stringify(manifest({ id: 'face', contains: { ui: { entry: 'ui/index.js', permissions: ['files.write', 'files.reveal'] } } })));
+      assert.notEqual((await req('POST', '/api/tabs/nope/reveal', { path: 'x' })).status, 403, 'a permission the manifest adds works without an update');
       assert.equal((await ok<OsPluginsReport>('GET', '/api/os-plugins')).rows[0].changed, true);
-
-      await toggle('disable');
-      await toggle('enable');
-      const [again] = await list();
-      assert.notEqual(again.url, ui.url);
-      assert.match((await kit.app.inject({ url: again.url })).body, /steal/);
     });
 
     it('a bad entry or an unknown permission is refused', () => {
@@ -712,20 +727,34 @@ describe('kit component', () => {
     const before = [snapshot(), data()];
     const plan = await preview('kitted', 'enable');
     assert.deepEqual(plan.changes.map((c) => [c.kind, c.action, c.name, c.where, c.detail]), [['kit', 'add', 'Full', dir, 'project kit actions']]);
-    assert.equal(osPlugins.activeKit(), null);
+    assert.deepEqual(osPlugins.activeKits(), []);
     assert.equal((await confirm('kitted', 'enable', plan.sha)).status, 200);
     assert.deepEqual([snapshot(), data()], before);
-    assert.deepEqual(osPlugins.activeKit(), { id: 'kitted', dir: join(dir, 'kit'), version: '1.0.0' });
+    assert.deepEqual(osPlugins.activeKits(), [{ id: 'kitted', dir: join(dir, 'kit'), version: '1.0.0' }]);
     const [row] = (await ok<OsPluginsReport>('GET', '/api/os-plugins')).rows;
     assert.deepEqual([row.contains.kit, row.changed], ['kit', false]);
 
     kit.write(join(dir, 'kit', 'x.md'), '# x\n');
     kit.write(join(dir, 'kit', 'files.json'), '[{ "path": "x.md", "owner": "kit" }]\n');
-    assert.equal(osPlugins.activeKit(), null);
+    assert.equal(osPlugins.activeKits()[0]?.id, 'kitted', 'a changed kit keeps working');
     const update = await preview('kitted', 'update');
     assert.equal((await confirm('kitted', 'update', update.sha)).status, 200);
-    assert.equal(osPlugins.activeKit()?.id, 'kitted');
+    assert.equal(osPlugins.activeKits()[0]?.id, 'kitted');
     assert.deepEqual([snapshot(), data()], before);
+  });
+});
+
+describe('server part', () => {
+  it('an enabled plugin runs the server part its current manifest names, with no update', async () => {
+    const osPlugins = createOsPlugins(kit.ctx, createSkills(kit.ctx), createMcp(kit.ctx), createApprovals(kit.ctx));
+    const dir = join(kit.paths.plugins, 'served');
+    kit.write(join(dir, MANIFEST), JSON.stringify(manifest({ id: 'served', contains: { kit: 'kit' } })));
+    kit.write(join(dir, 'kit', 'files.json'), '[]\n');
+    assert.equal((await confirm('served', 'enable', (await preview('served', 'enable')).sha)).status, 200);
+    assert.deepEqual(osPlugins.activeServers(), []);
+    kit.write(join(dir, MANIFEST), JSON.stringify(manifest({ id: 'served', contains: { kit: 'kit', server: 'server/index.ts' } })));
+    kit.write(join(dir, 'server', 'index.ts'), 'export const activate = () => ({});\n');
+    assert.deepEqual(osPlugins.activeServers(), [{ id: 'served', file: join(dir, 'server', 'index.ts') }]);
   });
 });
 

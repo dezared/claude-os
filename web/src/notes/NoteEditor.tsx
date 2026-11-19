@@ -31,7 +31,7 @@ export function Thumb({ src, title, onRemove }: { src: string; title: string; on
   if (broken) return <span title={title} className="flex h-[72px] items-center gap-1.5 rounded-md border border-line2 px-2 text-[11px] text-dim"><ImageOff size={12} className="flex-none" />{t('planner.imageBroken')}</span>;
   return (
     <span className="group/thumb relative block max-w-full">
-      <button type="button" aria-label={t('planner.imageOpen')} title={t('planner.imageOpen')} onClick={() => openImage(src, title)} className="press block max-w-full cursor-zoom-in overflow-hidden rounded-md border border-line2 hover:border-white/25">
+      <button type="button" aria-label={t('planner.imageOpen')} title={t('planner.imageOpen')} onClick={() => openImage(src, title)} className="press block max-w-full cursor-zoom-in overflow-hidden rounded-md border border-line2 hover:border-fg/25">
         <img src={src} alt={t('planner.imageAlt')} loading="lazy" draggable={false} onError={() => setBroken(true)} className="block h-[72px] max-w-full object-cover" />
       </button>
       {onRemove && <IconButton label={t('planner.imageRemove')} onClick={onRemove} className="absolute top-1 right-1 size-5 bg-black/60 text-white opacity-0 group-focus-within/thumb:opacity-100 group-hover/thumb:opacity-100 enabled:hover:bg-black/80 enabled:hover:text-white"><X size={11} /></IconButton>}
@@ -265,7 +265,7 @@ export function NoteEditor({ note, dir, busy }: { note: PlannerNote; dir: string
           <div key={`c${i}`} data-planner-item={b.text} className="group/item flex items-start gap-2">
             <label className="flex h-[1.55em] flex-none cursor-pointer items-center">
               <input type="checkbox" className="peer sr-only" checked={b.done} disabled={busy} onChange={(e) => replace(b.from, b.to, itemLine(b.indent, e.target.checked, b.text), null, true)} />
-              <span aria-hidden className="flex size-3.5 items-center justify-center rounded-[4px] border border-white/25 transition-colors duration-150 peer-checked:border-accent peer-checked:bg-accent peer-focus-visible:outline-1 peer-focus-visible:outline-accent-deep">
+              <span aria-hidden className="flex size-3.5 items-center justify-center rounded-[4px] border border-fg/25 transition-colors duration-150 peer-checked:border-accent peer-checked:bg-accent peer-focus-visible:outline-1 peer-focus-visible:outline-accent-deep">
                 <Check size={10} strokeWidth={3.5} className={cn('text-on-accent transition-[opacity,scale] duration-150', b.done ? 'scale-100 opacity-100' : 'scale-50 opacity-0')} />
               </span>
             </label>
@@ -288,5 +288,43 @@ export function NoteEditor({ note, dir, busy }: { note: PlannerNote; dir: string
         );
       })}
     </div>
+  );
+}
+
+/** The name, in place. Saved on leaving the field; an empty one is not a name. */
+export function TitleField({ note, onActive }: { note: PlannerNote; onActive: (on: boolean) => void }) {
+  const [value, setValue] = useState<string | null>(null);
+  const commit = () => {
+    const clean = value?.trim();
+    setValue(null);
+    onActive(false);
+    if (!clean || clean === note.title) return;
+    patchCachedNote({ ...note, title: clean });
+    api<PlannerNote>(noteUrl(note.id), { method: 'PATCH', body: { title: clean } }).then(patchCachedNote, toastError);
+  };
+  return (
+    <textarea
+      rows={1}
+      aria-label={t('planner.noteTitle')}
+      value={value ?? note.title}
+      maxLength={80}
+      spellCheck={false}
+      onFocus={() => onActive(true)}
+      onChange={(e) => setValue(e.target.value.replace(/\n/g, ' '))}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.stopPropagation();
+          setValue(null);
+          // After the state above: the blur must not save what was just dropped.
+          const el = e.currentTarget;
+          requestAnimationFrame(() => el.blur());
+        }
+      }}
+      className="block w-full resize-none bg-transparent text-[13px] font-medium wrap-anywhere text-fg outline-none [field-sizing:content]"
+    />
   );
 }

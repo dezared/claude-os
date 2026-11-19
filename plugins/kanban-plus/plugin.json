@@ -1,0 +1,34 @@
+{
+  "id": "kanban-plus",
+  "name": "Kanban+",
+  "description": "The task board of Claude OS: boards in a sidebar, Epics and Tasks to start with and more that Claude builds on request; cards of every project with a project filter, types, priorities, assignees, labels, estimates, comments and a log of who took them in which session and what it cost. Claude works with the board through its kanban tools.",
+  "descriptionRu": "Доска задач Claude OS: доски в боковой панели, сначала «Эпики» и «Задачи», остальные Claude строит по просьбе; карточки всех проектов с фильтром по проекту, типом, приоритетом, исполнителем, метками, оценкой, комментариями и журналом: кто взял задачу, в какой сессии и сколько это стоило. Claude работает с доской через свои инструменты канбана.",
+  "features": [
+    "Boards in a sidebar: Epics and Tasks, and any board Claude builds on request; Board and List views",
+    "Cards with type, priority, assignee (you or an agent), labels, estimate and a Markdown description",
+    "Comments and an activity log: created, moved, taken by which tab and session",
+    "The sessions a card was worked in, with their tokens and, on API billing, their cost",
+    "Search, filters by project, type, assignee and label; keyboard shortcuts",
+    "Drag cards between columns, onto another board and into a chat",
+    "Cards stay Markdown files in vault/kanban that Obsidian opens"
+  ],
+  "featuresRu": [
+    "Доски в боковой панели: «Эпики», «Задачи» и любые, что Claude построит по просьбе; виды «Доска» и «Список»",
+    "Карточки с типом, приоритетом, исполнителем (вы или агент), метками, оценкой и описанием в Markdown",
+    "Комментарии и журнал событий: создана, перенесена, взята — какой вкладкой и в какой сессии",
+    "Сессии, работавшие над карточкой, с токенами и, при оплате через API, стоимостью",
+    "Поиск, фильтры по проекту, типу, исполнителю и метке; горячие клавиши",
+    "Карточки перетаскиваются между колонками, на другую доску и в чат",
+    "Карточки остаются Markdown-файлами в vault/kanban, которые открывает Obsidian"
+  ],
+  "icon": "square-kanban",
+  "version": "2.0.0",
+  "author": "Claude OS",
+  "enabledByDefault": true,
+  "contains": {
+    "server": "server/index.ts",
+    "ui": {
+      "entry": "ui/index.js"
+    }
+  }
+}

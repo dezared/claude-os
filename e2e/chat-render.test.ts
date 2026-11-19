@@ -255,6 +255,51 @@ test('scroll: a tool card opened at the bottom stays under the pointer, closing 
   assert.ok(distance < 2, `follows again, distance ${distance}`);
 });
 
+/** A finished transcript read well above its bottom; a draft typed before that keeps its first letter from moving the view. */
+async function scrolledUp(draft = ''): Promise<ReturnType<Page['getByRole']>> {
+  const { box } = await openWorkTab();
+  await say(box, 'MANY 40');
+  await page.getByText('Сообщение 39', { exact: true }).waitFor();
+  await idle();
+  if (draft) await box.fill(draft);
+  const area = await scroller().boundingBox();
+  await page.mouse.move(area!.x + area!.width / 2, area!.y + area!.height / 2);
+  await page.mouse.wheel(0, -1500);
+  await toBottomButton().waitFor();
+  await page.waitForTimeout(400); // the wheel's own animation ends: a scroll still on its way up would let go of the bottom again
+  return box;
+}
+
+const distance = () => scroller().evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+
+test('scroll: the first letter of a new message brings the bottom back', async () => {
+  const box = await scrolledUp();
+  assert.ok((await distance()) > 500, 'read further up');
+  await box.pressSequentially('д');
+  await toBottomButton().waitFor({ state: 'detached' });
+  await page.waitForFunction(() => { const el = document.querySelector('[data-testid=transcript-scroller]')!; return el.scrollHeight - el.scrollTop - el.clientHeight < 2; });
+  await box.fill('');
+});
+
+test('scroll: sending glides to the very bottom and the answer is followed', async () => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  try {
+    await scrolledUp('SAY ответ внизу');
+    const from = await distance();
+    const watch = watchScroll(1200);
+    await page.getByRole('button', { name: /^(Отправить|В очередь)$/ }).click();
+    const seen = await watch;
+    const steps = new Set(seen.tops.map(Math.round)).size;
+    assert.ok(steps > 3, `a smooth way down from ${from}px, ${steps} distinct places`);
+    await page.locator('.md').getByText('ответ внизу', { exact: true }).waitFor();
+    await idle();
+    await page.waitForTimeout(300);
+    assert.ok((await distance()) < 2, `at the bottom, distance ${await distance()}`);
+  } finally {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  }
+});
+
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==', 'base64');
 
 function seedProject(): string {
@@ -330,6 +375,15 @@ test('B2: code is highlighted, paths open, an image shows in place and at full s
 
   await reply.locator('img.chat-img[alt="shot.png"]').click();
   await dialog().locator('img[alt="shot.png"]').waitFor();
+  // The wheel alone zooms the picture, a double click fits it again.
+  const percent = dialog().getByTestId('zoom-percent');
+  await percent.getByText('100%').waitFor();
+  await dialog().getByTestId('zoom-stage').hover();
+  await page.mouse.wheel(0, -500);
+  await page.waitForFunction(() => parseInt(document.querySelector('[data-testid="zoom-percent"]')!.textContent!, 10) > 100);
+  assert.equal(await percent.getAttribute('aria-pressed'), 'false');
+  await dialog().getByTestId('zoom-stage').dblclick();
+  await percent.getByText('100%').waitFor();
   await page.keyboard.press('Escape');
 
   await reply.locator('a[data-file="src/a.ts"]').first().click();

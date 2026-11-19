@@ -48,7 +48,7 @@ async function askedQuestions(level: QuestionLevel, prompt: string): Promise<num
     const denial = questionDenial(level, calls++);
     return denial ? { behavior: 'deny', message: denial } : { behavior: 'allow', updatedInput: { ...input, answers: firstOptions(input) } };
   };
-  const append = profileBlock({ name: 'Ann', language: 'en', questionLevel: level, projectsDir: cwd }, {});
+  const append = profileBlock({ name: 'Ann', language: 'en', questionLevel: level }, {});
   try {
     const q = query({ prompt, options: { cwd, model: 'haiku', maxTurns: 8, settingSources: [], persistSession: false, canUseTool, systemPrompt: { type: 'preset', preset: 'claude_code', append } } });
     for await (const message of q) if (message.type === 'result') break;

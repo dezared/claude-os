@@ -1,15 +1,28 @@
 import * as Popover from '@radix-ui/react-popover';
 import { FileText, Info, Maximize, Minus, Plus, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { ErrorState, Spinner } from '@/components/states';
 import { IconButton } from '@/components/ui';
 import type { Query } from '@/lib/api';
 import { fmtInt, shortPath } from '@/lib/format';
 import { t, tn } from '@/lib/i18n';
 import { useApp } from '@/lib/store';
-import type { MemoryGraph } from '@/lib/types';
+import type { MemoryMap } from '@/lib/types';
 import { Snippet, useMemorySearch } from '@/lib/useMemorySearch';
 import type { Universe } from './universe/Universe';
+
+/** How many notes there are, in how many projects, and how many of them the map draws. */
+function CountPill({ data }: { data: MemoryMap }) {
+  const groups = data.counts.length;
+  return (
+    <div className="flex flex-none items-baseline gap-1.5 whitespace-nowrap">
+      <b className="text-[15px] leading-none font-semibold tracking-[-.01em]">{fmtInt(data.total)}</b>
+      <small className="text-xs text-muted">{t('universe.inMemory', { notes: tn('unit.note', data.total) })}</small>
+      {groups > 0 && <small className="hidden text-xs text-dim min-[1440px]:inline">· {fmtInt(groups)} {tn('unit.constellation', groups)}</small>}
+      {data.nodes.length < data.total && <small className="enter-fade text-xs text-dim" title={t('universe.onMapHint')}>· {t('universe.onMap', { n: fmtInt(data.nodes.length) })}</small>}
+    </div>
+  );
+}
 
 /** The instrument line over the map: what is here and how to find it. Search lights the matching stars. */
 export function UniverseHud({
@@ -17,31 +30,25 @@ export function UniverseHud({
   universe,
   onHighlight,
 }: {
-  graph: Query<MemoryGraph>;
+  graph: Query<MemoryMap>;
   universe: RefObject<Universe | null>;
   onHighlight: (ids: Set<string> | null) => void;
 }) {
   const [query, setQuery] = useState('');
   const openNote = useApp((s) => s.openNote);
   const data = graph.data;
-  const count = data?.nodes.length ?? 0;
+  const count = data?.total ?? 0;
 
   const matches = useMemorySearch(query, 20);
 
   useEffect(() => onHighlight(matches ? new Set(matches.map((n) => n.id)) : null), [matches, onHighlight]);
   useEffect(() => () => onHighlight(null), [onHighlight]); // gone to the trash mid-search: the stars go out with it
 
-  const groups = useMemo(() => new Set(data?.nodes.map((n) => n.project)).size, [data]);
-
   return (
     <div className="flex w-full max-w-[520px] flex-col items-center gap-2">
       <div className="glass flex w-full items-center gap-3 rounded-full py-1 pr-1 pl-4">
         {data ? (
-          <div className="flex flex-none items-baseline gap-1.5 whitespace-nowrap">
-            <b className="text-[15px] leading-none font-semibold tracking-[-.01em]">{fmtInt(count)}</b>
-            <small className="text-xs text-muted">{t('universe.inMemory', { notes: tn('unit.note', count) })}</small>
-            {groups > 0 && <small className="hidden text-xs text-dim min-[1440px]:inline">· {fmtInt(groups)} {tn('unit.constellation', groups)}</small>}
-          </div>
+          <CountPill data={data} />
         ) : graph.error ? (
           <span className="text-xs text-muted">{t('universe.noData')}</span>
         ) : (
@@ -59,10 +66,10 @@ export function UniverseHud({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Escape' && setQuery('')}
               placeholder={t('universe.searchPlaceholder')}
-              className="h-7 w-full rounded-full border border-transparent bg-white/[.07] pr-7 pl-7.5 text-xs text-fg transition-colors duration-150 outline-none placeholder:text-dim hover:bg-white/10 focus:border-accent-deep focus:bg-white/10"
+              className="h-7 w-full rounded-full border border-transparent bg-fg/[.07] pr-7 pl-7.5 text-xs text-fg transition-colors duration-150 outline-none placeholder:text-dim hover:bg-fg/10 focus:border-accent-deep focus:bg-fg/10"
             />
             {query && (
-              <button type="button" aria-label={t('common.clear')} onClick={() => setQuery('')} className="press absolute top-1.25 right-1.5 flex size-4.5 items-center justify-center rounded-full text-dim hover:bg-white/10 hover:text-fg">
+              <button type="button" aria-label={t('common.clear')} onClick={() => setQuery('')} className="press absolute top-1.25 right-1.5 flex size-4.5 items-center justify-center rounded-full text-dim hover:bg-fg/10 hover:text-fg">
                 <X size={11} />
               </button>
             )}
@@ -99,9 +106,9 @@ export function UniverseHud({
 }
 
 /** What the map has to say about itself stays on the screen whatever happened to the widget above. */
-export function UniverseStatus({ graph, unsupported }: { graph: Query<MemoryGraph>; unsupported: boolean }) {
+export function UniverseStatus({ graph, unsupported }: { graph: Query<MemoryMap>; unsupported: boolean }) {
   const data = graph.data;
-  const count = data?.nodes.length ?? 0;
+  const count = data?.total ?? 0;
   return (
     <>
       {unsupported && <div role="status" className="glass rounded-xl px-4 py-3 text-center text-[13px] text-soft">{t('universe.noWebgl')}</div>}
@@ -121,7 +128,7 @@ export function UniverseStatus({ graph, unsupported }: { graph: Query<MemoryGrap
 }
 
 /** Zoom, reset and the legend. Reset also answers double click on empty space. */
-export function ViewControls({ graph, universe }: { graph: Query<MemoryGraph>; universe: RefObject<Universe | null> }) {
+export function ViewControls({ graph, universe }: { graph: Query<MemoryMap>; universe: RefObject<Universe | null> }) {
   const data = graph.data;
   const hasVault = data?.nodes.some((n) => n.connected);
   const hasReadOnly = data?.nodes.some((n) => !n.connected);
@@ -139,10 +146,10 @@ export function ViewControls({ graph, universe }: { graph: Query<MemoryGraph>; u
             <h3 className="mb-2 text-[13px] font-medium">{t('universe.legend')}</h3>
             <ul className="flex flex-col gap-1.5 text-muted">
               <li>{t('universe.legendColor')}</li>
-              <li className="flex items-center gap-2"><i className="size-2 flex-none rounded-full bg-[#7fd4ff]" /> {t('universe.legendActive')}</li>
-              <li className="flex items-center gap-2"><i className="size-2 flex-none rounded-full bg-[#7fd4ff] opacity-50" /> {t('universe.legendInactive')}</li>
-              <li className="flex items-center gap-2"><i className="h-0.5 w-3 flex-none bg-white/85" /> {t('universe.legendLinks')}</li>
-              <li className="flex items-center gap-2"><i className="h-px w-3 flex-none bg-white/30" /> {t('universe.legendSkeleton')}</li>
+              <li className="flex items-center gap-2"><i className="size-2 flex-none rounded-full bg-c-cyan" /> {t('universe.legendActive')}</li>
+              <li className="flex items-center gap-2"><i className="size-2 flex-none rounded-full bg-c-cyan opacity-50" /> {t('universe.legendInactive')}</li>
+              <li className="flex items-center gap-2"><i className="h-0.5 w-3 flex-none bg-fg/85" /> {t('universe.legendLinks')}</li>
+              <li className="flex items-center gap-2"><i className="h-px w-3 flex-none bg-fg/30" /> {t('universe.legendSkeleton')}</li>
               <li>{t('universe.legendStars')}</li>
               <li>{t('universe.legendOrbits')}</li>
               {hasVault && hasReadOnly && <li>{t('universe.legendReadOnly')}</li>}
@@ -158,6 +165,6 @@ export function ViewControls({ graph, universe }: { graph: Query<MemoryGraph>; u
 }
 
 /** The count in the widget's title when the pill itself is folded away. */
-export function NotesCount({ graph }: { graph: Query<MemoryGraph> }) {
-  return graph.data ? <span className="flex-none text-[11.5px] text-muted">{fmtInt(graph.data.nodes.length)}</span> : null;
+export function NotesCount({ graph }: { graph: Query<MemoryMap> }) {
+  return graph.data ? <span className="flex-none text-[11.5px] text-muted">{fmtInt(graph.data.total)}</span> : null;
 }

@@ -70,11 +70,16 @@ function freePort(): Promise<number> {
 }
 
 // A finished first-run setup: the setup modal would cover the home screen of every test that is not about it.
+// The board's move into Kanban+ counts as done too (data/ beside config/, as every caller lays them out), or the start
+// would enable the plugin in tests that set up their own plugin state.
 export function seedSetupDone(configDir: string): void {
   const file = join(configDir, 'settings.json');
   if (existsSync(file)) return;
   mkdirSync(configDir, { recursive: true });
   writeFileSync(file, JSON.stringify({ setup: { step: 'done', completedAt: 1, tabId: null } }));
+  const data = join(configDir, '..', 'data');
+  mkdirSync(data, { recursive: true });
+  if (!existsSync(join(data, 'os-plugins-moved.json'))) writeFileSync(join(data, 'os-plugins-moved.json'), JSON.stringify(['kanban-plus']));
 }
 
 // freshInstall: no config at all, as on a new machine.
@@ -90,7 +95,6 @@ export async function startServer(env: Record<string, string> = {}, opts: { fres
     CLAUDE_OS_DATA: dataDir,
     CLAUDE_OS_CONFIG: join(dir, 'config'),
     CLAUDE_OS_VAULT: join(dir, 'vault'),
-    CLAUDE_OS_NEW_PROJECTS: newProjects,
     CLAUDE_OS_CLAUDE_BIN: FAKE,
     CLAUDE_CONFIG_DIR: configDir,
     CLAUDE_OS_PORT: String(port),

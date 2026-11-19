@@ -21,8 +21,8 @@ function Meter({ w }: { w: LimitWindow }) {
         <span className="min-w-0 truncate text-soft">{windowLabel(w)}</span>
         <span className="flex-none text-muted">{w.percent === null ? t('common.noData') : `${Math.round(percent)}%`}</span>
       </div>
-      <div className="h-1 rounded-full bg-white/10">
-        <i className={cn('block h-full rounded-full', w.severity && w.severity !== 'normal' ? 'bg-accent' : 'bg-white/55')} style={{ width: `${Math.min(100, percent)}%` }} />
+      <div className="h-1 rounded-full bg-fg/10">
+        <i className={cn('block h-full rounded-full', w.severity && w.severity !== 'normal' ? 'bg-accent' : 'bg-fg/55')} style={{ width: `${Math.min(100, percent)}%` }} />
       </div>
       {w.resetsAt && <div className="mt-1 text-[11px] text-dim">{t('limits.resets', { at: fmtDateTime(w.resetsAt) })}</div>}
     </div>
@@ -40,7 +40,7 @@ export function LimitsBadge() {
   const headline = a?.windows.find((w) => w.active) ?? a?.windows[0];
   if (!a) return null;
   const used = headline?.percent ?? 0;
-  const usageTone = used > 95 ? 'text-[#e5867a]' : used > 70 ? 'text-[#e6c07b]' : 'text-soft';
+  const usageTone = used > 95 ? 'text-c-red' : used > 70 ? 'text-c-gold' : 'text-soft';
 
   const refresh = async () => {
     setBusy(true);
@@ -59,7 +59,7 @@ export function LimitsBadge() {
           type="button"
           aria-label={t('limits.aria')}
           title={t('limits.aria')}
-          className="press mr-1 flex h-7 items-center gap-1.5 rounded-md px-2 text-[11.5px] whitespace-nowrap text-muted hover:bg-white/[.08] hover:text-fg"
+          className="press mr-1 flex h-7 items-center gap-1.5 rounded-md px-2 text-[11.5px] whitespace-nowrap text-muted hover:bg-fg/[.08] hover:text-fg"
         >
           <Gauge size={13} className="text-dim" />
           {a.plan && <span className="hidden xl:inline">{a.plan}</span>}

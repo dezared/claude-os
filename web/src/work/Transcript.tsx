@@ -1,20 +1,20 @@
-import { ArrowDown, Bot, Brain, ChevronRight, Square, SquareTerminal, TriangleAlert, Wrench } from 'lucide-react';
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ArrowDown, Bot, Brain, ChevronRight, SquareTerminal, TriangleAlert, Wrench } from 'lucide-react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChatMarkdown } from '@/components/MarkdownChat';
 import { Button } from '@/components/ui';
 import { useShowCost } from '@/lib/account';
-import { api } from '@/lib/api';
 import { useChatWidthClass } from '@/lib/chatWidth';
-import { PASTED_BLOCK } from '../../../shared/pasted.ts';
 import { useFocusMode } from '@/lib/focus';
 import { cn, fmtTokens, fmtUsd, tokenSum } from '@/lib/format';
 import type { ChatState, Item, RequestItem } from '@/lib/chat';
 import { localizeAttachedFiles } from '@/lib/serverLines';
-import { toastError } from '@/lib/store';
 import type { ChatBlock } from '@/lib/types';
 import { openImage } from './FileViewer';
 import { RequestCard } from './RequestCards';
+import { useStickToBottom } from './stickToBottom';
+import { withPastes } from './UserText';
 import { TerminalText } from './TerminalText';
+import { TurnStatus } from './TurnStatus';
 import { isAgentTool, SavedDocuments, ToolContext, ToolGroup, type ToolBlock } from './ToolCall';
 import { t } from '@/lib/i18n';
 
@@ -98,42 +98,6 @@ function InlineImage({ src, alt, className }: { src: string; alt: string; classN
       <img alt={alt} src={src} className={className} />
     </button>
   );
-}
-
-// A long paste goes out in a tag (see pastes.ts): in the bubble it is a block of its own, folded to a few lines.
-function PastedBlock({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  const [overflows, setOverflows] = useState(false);
-  const body = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    const el = body.current;
-    if (!el || open) return;
-    const measure = () => setOverflows(el.scrollHeight > el.clientHeight);
-    measure();
-    const observer = new ResizeObserver(measure); // the column can change width: /view
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [open]);
-  return (
-    <span data-testid="pasted-block" className="my-1 block rounded-md border border-line px-2.5 py-1.5 text-[13px] text-soft">
-      <span ref={body} className={open ? 'block' : 'line-clamp-6'}>{text}</span>
-      {(overflows || open) && (
-        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="press mt-1 text-[11px] text-dim select-none hover:text-fg">
-          {t(open ? 'chat.pasteCollapse' : 'chat.pasteExpand')}
-        </button>
-      )}
-    </span>
-  );
-}
-
-function withPastes(text: string): ReactNode {
-  const parts: ReactNode[] = [];
-  let at = 0;
-  for (const m of text.matchAll(PASTED_BLOCK)) {
-    parts.push(text.slice(at, m.index), <PastedBlock key={m.index} text={m[1]} />);
-    at = m.index + m[0].length;
-  }
-  return at === 0 ? text : [...parts, text.slice(at)];
 }
 
 function UserBubble({ blocks }: { blocks: ChatBlock[] }) {
@@ -262,110 +226,20 @@ const NodeView = memo(function NodeView({ node, results, tabId, filesTab, readOn
 });
 
 const PAGE = 200;
-const NEAR_PX = 60;
-const BACK_PX = 24; // this far down in one go is coming back to the bottom; less is a touchpad's jitter
 
 /**
- * Follows the bottom like a terminal until the user scrolls up, then keeps their place. It goes by the direction of the
- * scroll, not by the distance to the bottom alone: a wheel tick is often smaller than NEAR_PX, and the next line of a stream
- * would throw that user straight back down. The input lets go before the scroll: an animated wheel moves less than a pixel in
- * its first frame, and a stick in that frame would cancel the animation. Only the user's own way down follows again:
- * a picture loading above the place moves scrollTop too, and the distance to the bottom stays.
+ * The keys that arrived after the conversation was first shown: only those enter with motion (.msg-item.is-new). What was there
+ * when the tab opened is simply there, and streamed text, already on screen as it came, does not fade in a second time.
  */
-function useStickToBottom(deps: { scrollKey: string | null }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
-  const pinned = useRef(true);
-  const [atBottom, setAtBottom] = useState(true);
-  const seen = useRef({ top: 0, height: 0, client: 0 }); // the place the next scroll event is compared with
-  const down = useRef(0); // how far the place has gone down since it last went up
-
-  const look = (el: HTMLElement) => ({ top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight });
-  const gap = (s: { top: number; height: number; client: number }) => s.height - s.top - s.client;
-  const stick = (el: HTMLElement) => {
-    el.scrollTop = el.scrollHeight;
-    // At once, not with its scroll event: a wheel tick landing before that event would look like a move down from the old place.
-    seen.current = look(el);
-  };
-
-  useLayoutEffect(() => {
-    const el = scroller.current;
-    if (el) stick(el);
-    pinned.current = true;
-    setAtBottom(true);
-  }, [deps.scrollKey]);
-
+function useArrived(keys: string[], scrollKey: string | null): (key: string) => boolean {
+  const known = useRef<{ scope: string | null; keys: Set<string> } | null>(null);
+  if (known.current?.scope !== scrollKey) known.current = { scope: scrollKey, keys: new Set(keys) };
+  const was = known.current.keys;
+  if (was.size === 0) for (const k of keys) was.add(k); // the history came after the first render: it is still what was there
   useEffect(() => {
-    const el = scroller.current;
-    const inner = content.current;
-    if (!el || !inner) return;
-    const ro = new ResizeObserver(() => {
-      if (!pinned.current && gap(look(el)) <= 1) pinned.current = true; // nothing is left below the place
-      if (pinned.current) stick(el);
-      else seen.current = look(el);
-      setAtBottom(pinned.current);
-    });
-    ro.observe(inner);
-    ro.observe(el); // the field under the chat grows, a strip of subagents appears
-    const onScroll = () => {
-      const last = seen.current;
-      const now = look(el);
-      if (now.top === last.top && now.height === last.height && now.client === last.client) return; // the event of a stick
-      seen.current = now;
-      const closer = gap(last) - gap(now);
-      // Content that shrank or a taller viewport also lowers scrollTop, but they leave the place at the very bottom.
-      if (now.top < last.top - 0.5 && gap(now) > 1) {
-        pinned.current = false;
-        down.current = 0;
-      } else if (closer > 0) {
-        if (now.top > last.top) down.current += closer;
-        if (gap(now) <= 1 || (gap(now) < NEAR_PX && down.current >= BACK_PX)) pinned.current = true;
-      }
-      setAtBottom(pinned.current);
-    };
-    const letGo = () => {
-      if (!pinned.current || el.scrollHeight <= el.clientHeight) return;
-      pinned.current = false;
-      down.current = 0;
-      setAtBottom(false);
-    };
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) return; // zoom
-      if (e.deltaY < 0) letGo();
-      else if (e.deltaY > 0 && !pinned.current && gap(look(el)) <= 1) {
-        pinned.current = true; // already at the bottom: no scroll event will say so
-        setAtBottom(true);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home') letGo();
-    };
-    // Opening a card at the bottom keeps the card under the pointer: following would pull it away. Closing it follows again, see the observer.
-    const onClick = (e: MouseEvent) => {
-      if (!(e.target as Element).closest('[aria-expanded]')) return;
-      pinned.current = false;
-      down.current = 0;
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    el.addEventListener('wheel', onWheel, { passive: true });
-    el.addEventListener('keydown', onKey);
-    inner.addEventListener('click', onClick, true);
-    return () => {
-      ro.disconnect();
-      el.removeEventListener('scroll', onScroll);
-      el.removeEventListener('wheel', onWheel);
-      el.removeEventListener('keydown', onKey);
-      inner.removeEventListener('click', onClick, true);
-    };
-  }, []);
-
-  const toBottom = () => {
-    const el = scroller.current;
-    if (el) stick(el);
-    pinned.current = true;
-    setAtBottom(true);
-  };
-  return { scroller, content, atBottom, toBottom };
+    for (const k of keys) was.add(k);
+  });
+  return (key) => !was.has(key);
 }
 
 export function Transcript({
@@ -395,7 +269,7 @@ export function Transcript({
   const toolContext = useMemo(() => ({ sessionId: sessionId ?? null, filesTab, inner, tasks: chat.tasks }), [sessionId, filesTab, inner, chat.tasks]);
   const [limit, setLimit] = useState(PAGE);
   useEffect(() => setLimit(PAGE), [scrollKey]);
-  const { scroller, content, atBottom, toBottom } = useStickToBottom({ scrollKey });
+  const { scroller, content, atBottom, toBottom } = useStickToBottom({ scrollKey, tabId });
 
   // Someone reading further up keeps the top of the page: a new message must not take away what is above their place.
   const kept = useRef<number | null>(null);
@@ -409,6 +283,7 @@ export function Transcript({
   const visible = focus ? page.filter((n) => n.t !== 'thinking' && !(n.t === 'result' && !n.item.error && !n.item.interrupted)) : page;
   const streams = chat.streamOrder.map((id) => chat.stream[id]).filter(Boolean);
   const isEmpty = nodes.length === 0 && streams.length === 0;
+  const arrived = useArrived(visible.map((n) => n.key), scrollKey);
 
   return (
     <div className={cn('relative min-h-0 flex-1', className)}>
@@ -422,7 +297,7 @@ export function Transcript({
           {isEmpty && empty}
           <ToolContext.Provider value={toolContext}>
             {visible.map((n) => (
-              <div key={n.key} className="msg-item">
+              <div key={n.key} className={cn('msg-item', n.t !== 'text' && n.t !== 'thinking' && arrived(n.key) && 'is-new')}>
                 <NodeView node={n} results={n.t === 'tools' || n.t === 'subagent' ? chat.results : emptyResults} tabId={tabId} filesTab={filesTab} readOnly={readOnly} small={small} focus={focus} />
               </div>
             ))}
@@ -430,25 +305,7 @@ export function Transcript({
           {streams.map((text, i) => (
             <ChatMarkdown key={i} text={text} small={small} tabId={filesTab} images={false} />
           ))}
-          {working && (
-            // Sticky: the only way to stop a turn stays in reach when the conversation is scrolled up.
-            <div role="status" className="enter-fade sticky bottom-2 flex h-7 w-fit items-center gap-2 rounded-full border border-line2 bg-card pr-1 pl-2.5 text-xs text-muted shadow-md">
-              <i className="dot-working block size-1.5 rounded-full bg-accent" />
-              {t('chat.working')}
-              {tabId && !readOnly && (
-                <button
-                  type="button"
-                  aria-label={t('composer.interrupt')}
-                  title={t('composer.interrupt')}
-                  onClick={() => api(`/api/tabs/${encodeURIComponent(tabId)}/interrupt`, { method: 'POST' }).catch(toastError)}
-                  className="press flex h-5 items-center gap-1 rounded-full bg-accent-bg px-2 text-[11px] font-medium text-accent hover:bg-accent hover:text-on-accent"
-                >
-                  <Square size={8} fill="currentColor" />
-                  {t('composer.stop')}
-                </button>
-              )}
-            </div>
-          )}
+          {working && <TurnStatus chat={chat} tabId={tabId} readOnly={readOnly} />}
         </div>
       </div>
       {!atBottom && (

@@ -9,6 +9,7 @@ import { t } from '@/lib/i18n';
 import { toastError } from '@/lib/store';
 import type { IconLibrary, Project, ProjectIcons } from '@/lib/types';
 import { ClaudeMark } from './ClaudeMark';
+import { MaskGlyph } from './IconTile';
 import { askForIcons } from './ProjectIcon';
 import { Button, Dialog, Input } from './ui';
 
@@ -64,9 +65,9 @@ export function IconPicker() {
               aria-pressed={item.name === current}
               title={item.name}
               onClick={() => void choose(item.name)}
-              className={cn('press flex h-11 items-center justify-center rounded-lg hover:bg-raised', item.name === current && 'bg-white/[.13]')}
+              className={cn('press flex h-11 items-center justify-center rounded-lg hover:bg-raised', item.name === current && 'bg-fg/[.13]')}
             >
-              <img alt="" className="size-5" src={`data:image/svg+xml;utf8,${encodeURIComponent(item.svg)}`} />
+              <MaskGlyph svg={item.svg} className="block size-5 text-fg" />
             </button>
           ))}
           {library.data?.items.length === 0 && <p className="col-span-full py-6 text-center text-xs text-muted">{t('icons.nothing')}</p>}

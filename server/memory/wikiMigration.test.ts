@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
-import type { MemoryGraph, MemoryMigrationPlan, VaultCopyPreview, WikiRunView } from '../../shared/contract.ts';
+import type { MemoryGraph, MemoryMigrationPlan, VaultCopyPreview, SendRequest, WikiRunView } from '../../shared/contract.ts';
 import type { ChatApi } from '../context.ts';
 import { registerMemory } from './index.ts';
 import { encodeDir } from './store.ts';
@@ -45,7 +45,7 @@ function chatStub(): ChatApi {
       opened.push({ req, prompt, opts, tabId });
       return { tabId, cwd: req.cwd ?? '', title: req.title ?? '' };
     },
-    get: (tabId) => ({ send: (r) => void sent.push({ tabId, text: r.text ?? '' }), pendingPermission: () => null }),
+    get: (tabId) => ({ send: (r: SendRequest) => void sent.push({ tabId, text: r.text ?? '' }), pendingPermission: () => null }) as unknown as ReturnType<ChatApi['get']>,
   };
   return chat as ChatApi;
 }

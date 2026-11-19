@@ -52,17 +52,23 @@ async function open(view: unknown, locale = 'ru-RU'): Promise<Page> {
 const newTab = async () => (await srv.api<Tab>('POST', '/api/tabs', { cwd: mkdtempSync(join(srv.dir, 'w-')) })).body;
 const prints = () => srv.log().filter((l) => l.kind === 'print') as unknown as Logged[];
 const spawns = () => srv.log().filter((l) => l.kind === 'spawn') as unknown as Logged[];
-const field = (page: Page) => page.getByRole('textbox').last();
-const cards = (page: Page) => page.getByTestId('btw-card');
+const field = (page: Page) => page.locator('main').getByRole('textbox').last(); // the composer, not the side window's field
+const win = (page: Page) => page.getByRole('dialog', { name: 'Вопрос в сторону' });
+const turns = (page: Page) => win(page).getByTestId('btw-turn');
+const ask = async (page: Page, text: string) => {
+  const box = win(page).getByRole('textbox');
+  await box.fill(text);
+  await box.press('Enter');
+};
 
 async function submit(page: Page, text: string) {
   const box = field(page);
   await box.fill(text);
-  if (!text.includes(' ')) await box.press('Escape'); // the `/` list. With none open, Esc would close an answer.
+  if (!text.includes(' ')) await box.press('Escape'); // the `/` list. With none open, Esc would close the side window.
   await box.press('Enter');
 }
 
-test('/btw during a turn: a card above the input, several in a row, nothing in the conversation', async () => {
+test('/btw in a work tab during a turn: the side window opens, a follow-up continues the thread, nothing reaches the conversation', async () => {
   const tab = await newTab();
   const page = await open({ kind: 'tab', id: tab.id });
   await submit(page, 'SLOW');
@@ -70,32 +76,29 @@ test('/btw during a turn: a card above the input, several in a row, nothing in t
   const spawned = spawns().length;
 
   await submit(page, '/btw первый');
-  await submit(page, '/btw второй');
-  await cards(page).filter({ hasText: 'side: первый' }).waitFor();
-  await cards(page).filter({ hasText: 'side: второй' }).waitFor();
+  await turns(page).filter({ hasText: 'side: первый' }).waitFor();
   assert.equal(await field(page).inputValue(), '');
+  const box = (await win(page).boundingBox())!;
+  assert.ok(Math.abs(box.width - 420) < 2 && Math.abs(box.height - 420) < 2, `square: ${box.width}x${box.height}`);
+  assert.equal(await win(page).getByRole('textbox').evaluate((el) => el === document.activeElement), true);
 
-  const boxTop = (await field(page).boundingBox())!.y;
-  assert.ok((await cards(page).first().boundingBox())!.y < boxTop, 'above the input');
-  assert.equal(await page.getByRole('dialog').count(), 0, 'no help dialog any more');
+  await ask(page, 'второй');
+  await turns(page).filter({ hasText: 'Earlier in this side thread' }).filter({ hasText: 'второй' }).waitFor();
+  const flags = prints().at(-1)!.argv;
+  assert.ok(flags.includes('--resume') && flags.includes('--fork-session'), 'the follow-up forks the tab again');
   assert.equal(spawns().length, spawned, 'the turn keeps its one process');
   assert.ok(alive(spawns().at(-1)!.pid));
-  await page.getByText('tick').first().waitFor();
 
-  await cards(page).first().getByRole('button', { name: 'Закрыть ответ' }).click();
-  assert.equal(await cards(page).count(), 1);
   await page.keyboard.press('Escape');
-  await cards(page).first().waitFor({ state: 'detached' });
-
-  const transcript = page.getByText('side: второй');
-  assert.equal(await transcript.count(), 0, 'the answer was only in the card');
+  await win(page).waitFor({ state: 'detached' });
+  await page.getByText('tick').first().waitFor();
   const history = JSON.stringify((await srv.api('GET', `/api/tabs/${tab.id}/history`)).body);
   assert.equal(history.includes('side:'), false);
   assert.equal(history.includes('первый'), false);
   await srv.api('POST', `/api/tabs/${tab.id}/interrupt`);
 });
 
-test('closing a running card kills its child: by the cross and by Esc', async () => {
+test('closing the window with a question running kills its child: by the cross and by Esc', async () => {
   const tab = await newTab();
   const page = await open({ kind: 'tab', id: tab.id });
   await field(page).waitFor();
@@ -103,37 +106,58 @@ test('closing a running card kills its child: by the cross and by Esc', async ()
   for (const how of ['cross', 'esc']) {
     const count = prints().length;
     await submit(page, '/btw BTWHOLD');
-    await cards(page).filter({ hasText: 'начало ответа' }).waitFor();
+    await turns(page).filter({ hasText: 'начало ответа' }).waitFor();
     await waitUntil(() => prints().length > count, 'the child started');
     const child = prints()[count];
     assert.ok(alive(child.pid));
-    if (how === 'cross') await cards(page).getByRole('button', { name: 'Закрыть ответ' }).click();
+    if (how === 'cross') await win(page).getByRole('button', { name: 'Закрыть вопрос в сторону' }).click();
     else await page.keyboard.press('Escape');
-    await cards(page).first().waitFor({ state: 'detached' });
+    await win(page).waitFor({ state: 'detached' });
     await waitUntil(() => !alive(child.pid), `the child is gone after ${how}`);
   }
 });
 
-test('bare /btw stays in the field with a hint and what it costs, and sends nothing', async () => {
+test('bare /btw opens the window empty and sends nothing; a failed child shows its reason', async () => {
   const tab = await newTab();
   const page = await open({ kind: 'tab', id: tab.id });
   const count = prints().length;
   await submit(page, '/btw');
-  await page.getByText(/Вопрос в сторону/).waitFor();
-  await page.getByText(/Выполняет Claude|Входит в|баланс|план/).first().waitFor();
-  assert.equal(await field(page).inputValue(), '/btw ');
-  assert.equal(await field(page).evaluate((el) => el === document.activeElement), true);
+  await win(page).getByText(/учтёт разговор этой вкладки/).waitFor();
+  assert.equal(await win(page).getByText(/Выполняет Claude|Входит в|подписк|Ultra/).count(), 0, 'no note on cost or plan under the field');
+  assert.equal(await field(page).inputValue(), '');
   assert.equal(prints().length, count);
-  await page.keyboard.type('из подсказки');
+  await page.keyboard.type('из окна');
   await page.keyboard.press('Enter');
-  await cards(page).filter({ hasText: 'plain: из подсказки' }).waitFor();
+  await turns(page).filter({ hasText: 'plain: из окна' }).waitFor();
+  await page.keyboard.press('Escape'); // a new thread: the fake picks its scenario by how the question starts
+  await win(page).waitFor({ state: 'detached' });
+  await submit(page, '/btw BTWCRASH');
+  await win(page).getByRole('alert').getByText(/fake side crash/).waitFor();
 });
 
-test('a failed child shows its reason in the card', async () => {
-  const tab = await newTab();
-  const page = await open({ kind: 'tab', id: tab.id });
-  await submit(page, '/btw BTWCRASH');
-  await cards(page).getByRole('alert').getByText(/fake side crash/).waitFor();
+test('/btw on Home: the root folder, no conversation behind it', async () => {
+  const page = await open({ kind: 'home' });
+  const box = page.getByPlaceholder('Начни новый проект, запусти что-то…');
+  await box.fill('/btw с главной');
+  await box.press('Enter');
+  await turns(page).filter({ hasText: 'plain: с главной' }).waitFor();
+  await win(page).getByText('Без проекта').waitFor();
+  const call = prints().at(-1)! as Logged & { cwd: string };
+  assert.match(call.cwd, /\/root$/);
+  assert.equal(call.argv.includes('--resume'), false);
+  await page.keyboard.press('Escape');
+  await win(page).waitFor({ state: 'detached' });
+});
+
+test('Ctrl+Shift+Space opens the window empty from any screen, Esc closes it', async () => {
+  const page = await open({ kind: 'settings' });
+  await page.getByRole('heading').first().waitFor();
+  await page.keyboard.press('Control+Shift+Space');
+  await win(page).getByText(/Ctrl\+Shift\+Space открывает/).waitFor();
+  await ask(page, 'из настроек');
+  await turns(page).filter({ hasText: 'plain: из настроек' }).waitFor();
+  await page.keyboard.press('Escape');
+  await win(page).waitFor({ state: 'detached' });
 });
 
 test('the terminal dialog says what will really happen: a copy while the session has a tab, live or idled', async () => {
@@ -189,11 +213,12 @@ test('/branch opens a copy in a new tab, a command with a screen here puts the t
   assert.notEqual(branch.sessionId, tabs.find((t) => t.id === tab.id)!.sessionId);
 });
 
-test('english: the handoff and the hint', async () => {
+test('english: the handoff and the side window', async () => {
   const tab = await newTab();
   const page = await open({ kind: 'tab', id: tab.id }, 'en-US');
   await submit(page, '/btw');
-  await page.getByText(/A side question/).waitFor();
+  await page.getByRole('dialog', { name: 'Side question' }).getByText(/stays out of it/).waitFor();
+  await page.keyboard.press('Escape');
   await submit(page, '/mobile');
   await page.getByRole('dialog', { name: '/mobile' }).getByText(/starts a new one in this folder/).waitFor();
 });

@@ -98,7 +98,7 @@ export function ConnectFolderDialog() {
           />
         </label>
         {dirs.length > 0 && (
-          <div id="connect-dirs" role="listbox" className="max-h-52 overflow-auto rounded-lg bg-white/[.035] p-1">
+          <div id="connect-dirs" role="listbox" className="max-h-52 overflow-auto rounded-lg bg-fg/[.035] p-1">
             {dirs.map((d, i) => (
               <button
                 key={d}

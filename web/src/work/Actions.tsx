@@ -118,7 +118,7 @@ export function ActionButton({ action, tab, label, variant = 'outline' }: { acti
 export function ActionBar({ tab }: { tab: Tab }) {
   const actions = useActions();
   if (actions.error && !actions.data) return <span className="text-xs text-dim" title={actions.error}>{t('action.unavailable')}</span>;
-  const shown = (actions.data ?? []).filter((a) => a.id !== 'builtin:terminal').sort((a, b) => Number(b.id === 'builtin:shell') - Number(a.id === 'builtin:shell'));
+  const shown = (actions.data ?? []).filter((a) => a.id !== 'builtin:terminal' && a.bar).sort((a, b) => Number(b.id === 'builtin:shell') - Number(a.id === 'builtin:shell'));
   return (
     <>
       {shown.map((a) => (

@@ -1,13 +1,20 @@
 <!doctype html>
-<html lang="ru" class="dark">
+<html lang="ru">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <title>Claude OS</title>
     <style>
       html { background: #09090b; }
+      html[data-theme='light'] { background: #f4f3f1; }
     </style>
+    <script>
+      // Before the stylesheet, so a light page does not flash dark; web/src/lib/theme.ts owns the key.
+      var theme = localStorage.getItem('claude-os.theme');
+      if (theme === 'system') theme = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+    </script>
   </head>
   <body>
     <div id="root"></div>

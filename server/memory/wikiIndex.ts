@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { drain } from './scan.ts';
 
 // Generated wiki files: projects/<key>/MEMORY.md (loaded by Claude Code), _index/<key>.md (full catalog), _log/<key>.md (audit trail).
 
@@ -28,25 +29,52 @@ function hook(n: IndexNote): string {
   return text.length > HOOK_MAX ? `${text.slice(0, HOOK_MAX - 1)}…` : text;
 }
 
-// One `## <type>` group per present type, in type order, names sorted inside.
-function grouped(notes: IndexNote[], line: (n: IndexNote) => string): string[] {
+// One `## <type>` group per present type, in type order, names sorted inside. A step per sort and per render, so
+// the catalog of a 25k-note project is written between requests.
+function* grouped(notes: IndexNote[], line: (n: IndexNote) => string): Generator<void, string[]> {
   const out: string[] = [];
   for (const type of TYPES) {
     const group = notes.filter((n) => typeOf(n) === type).sort(byName);
-    if (group.length) out.push(`## ${type}`, ...group.map(line));
+    yield;
+    if (group.length) out.push(`## ${type}`);
+    for (const n of group) {
+      out.push(line(n));
+      yield;
+    }
   }
   return out;
 }
 
-export function renderMemoryIndex(key: string, notes: IndexNote[]): string {
+// The first k notes by type, then the newest, then by name, without sorting them all: at 25k notes the full sort
+// held the server for about 100 ms.
+function firstRanked(notes: IndexNote[], k: number): IndexNote[] {
+  const out: IndexNote[] = [];
+  for (const type of TYPES) {
+    const need = k - out.length;
+    if (need <= 0) break;
+    let group = notes.filter((n) => typeOf(n) === type);
+    if (group.length > need) {
+      const least = Float64Array.from(group, (n) => n.recency).sort()[group.length - need];
+      group = group.filter((n) => n.recency >= least);
+    }
+    out.push(...group.sort((a, b) => b.recency - a.recency || byName(a, b)).slice(0, need));
+  }
+  return out;
+}
+
+export const renderMemoryIndex = (key: string, notes: IndexNote[]): string => drain(memoryIndexSteps(key, notes));
+
+export function* memoryIndexSteps(key: string, notes: IndexNote[]): Generator<void, string> {
   const line = (n: IndexNote) => {
     const h = hook(n);
     return h ? `- [${n.name}](${n.file}) — ${h}` : `- [${n.name}](${n.file})`;
   };
-  const ranked = [...notes].sort((a, b) => TYPES.indexOf(typeOf(a)) - TYPES.indexOf(typeOf(b)) || b.recency - a.recency || byName(a, b));
+  // Every note listed takes a line, so no more than the line budget can be listed.
+  const ranked = firstRanked(notes, MEMORY_BUDGET.lines);
+  yield;
   const render = (k: number) => {
-    const lines = grouped(ranked.slice(0, k), line);
-    if (k < ranked.length) lines.push(`+${ranked.length - k} more: _index/${key}.md, or memory_search`);
+    const lines = drain(grouped(ranked.slice(0, k), line));
+    if (k < notes.length) lines.push(`+${notes.length - k} more notes, all searchable: memory_search, or _index/${key}.md`);
     return { text: lines.length ? `${lines.join('\n')}\n` : '', count: lines.length };
   };
   const fits = (r: { text: string; count: number }) => r.count <= MEMORY_BUDGET.lines && Buffer.byteLength(r.text) <= MEMORY_BUDGET.bytes;
@@ -59,13 +87,15 @@ export function renderMemoryIndex(key: string, notes: IndexNote[]): string {
   return best.text;
 }
 
-export function renderCatalog(key: string, notes: IndexNote[]): string {
+export const renderCatalog = (key: string, notes: IndexNote[]): string => drain(catalogSteps(key, notes));
+
+export function* catalogSteps(key: string, notes: IndexNote[]): Generator<void, string> {
   const stem = (file: string) => file.replace(/\.md$/, '');
   const line = (n: IndexNote) => {
     const h = hook(n);
     return [`- [[projects/${key}/${stem(n.file)}|${n.name}]]`, ...(h ? ['—', h] : []), ...n.tags.map((t) => `#${t}`)].join(' ');
   };
-  return `${[`# ${key}`, ...grouped(notes, line)].join('\n')}\n`;
+  return `${[`# ${key}`, ...(yield* grouped(notes, line))].join('\n')}\n`;
 }
 
 export function appendLog(

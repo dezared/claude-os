@@ -5,7 +5,7 @@ The repository root holds `server/`, `web/`, `shared/`. Paths below are relative
 ## Before the first edit
 
 1. `git status` and `git log --oneline -5`. Other sessions may be editing and committing at the same time: never revert or reformat a change that is not yours, and re-read a file right before editing it.
-2. Decide the level. Core is `server/`, `web/`, `shared/`, `e2e/`, `desktop/`, `scripts/`, `root/`, `service/`, `defaults/`, `plugins/`, `docs/`. User data is `config/`, `data/`, `vault/`: never edit it for a core change, never commit it, never solve a core problem by editing the user's config. Kanban cards of the Claude OS project carry the level as `level`: `user` (config) or `root` (core).
+2. Decide the level. Core is `server/`, `web/`, `shared/`, `e2e/`, `desktop/`, `scripts/`, `root/`, `service/`, `defaults/`, `plugins/`, `docs/`. User data is `config/`, `data/`, `vault/`: never edit it for a core change, never commit it, never solve a core problem by editing the user's config. Kanban+ cards of the Claude OS project carry the level as `level`: `user` (config) or `root` (core).
 3. Small change: in place. Large change: its own task branch and worktree.
 
 ## Map
@@ -22,27 +22,28 @@ The repository root holds `server/`, `web/`, `shared/`. Paths below are relative
 | `setup/` | The setup session's folder. |
 | `defaults/` | Shipped defaults copied into `config/` by `server/defaults.ts` `bootstrapConfig`. |
 | `plugins/` | Shipped Claude OS plugins; a user copy in `config/plugins/<id>` wins. |
-| `scripts/` | `gate.ts` (the one gate), `check-lint-ratchet.ts`, `check-touchpoints.ts`, `check-shippable.ts`, `memory-token-probe.ts` (MEMORY.md token cost), each with its test; `devkit.test.ts` and `hooks.test.ts` cover `.claude/`. |
+| `scripts/` | `gate.ts` (the one gate), `check-lint-ratchet.ts`, `check-touchpoints.ts`, `check-shippable.ts`, `memory-token-probe.ts` (MEMORY.md token cost), each with its test; `memory-bench.ts` measures the memory module on a generated vault; `devkit.test.ts` and `hooks.test.ts` cover `.claude/`. |
 | `docs/` | `specs/`, `plans/` (dated design docs), `manifest/`, `rules/`, `solutions/`; `handoff/` is git-ignored. |
 
 ### server/
 
 - `index.ts`: bootstraps config, opens the DB, builds `ctx`, adds auth (`security.ts`), `/health`, `/api/app/status|restart|shutdown`, the error handler (`{ error, code }` with `err.statusCode`), registers modules in this order: journal, memory, tools, voice, chat; serves `dist/web`; opens `/ws`.
 - `context.ts` `Ctx`: `paths` (repo, data, config, plugins, root, service, claudeDir, claudeBin, vault, ...), `app` (Fastify), `db`, `journal`, `memory`, `chat?`, `settings?` (later modules may be absent in another module's tests: `ctx.chat?.`), `bus` (sessions-changed, rate-limit, turn-finished, ...), `broadcast(msg)`, `invalidate(...topics)` (debounced, tells the UI to refetch), `audit(action, target, diff?)`, `setBusy`, `restart?()`.
-- `tools/index.ts` `registerTools`: wires the `create*(ctx, deps)` factories (skills, mcp, actions, widgets, settings, account, commands, claudeMd, setup, admin, osPlugins, projectIcons) and declares most `/api` routes inline; kanban, planner, documents, agents, projectFiles, admin, osPlugins, projectIcons declare their own. It also watches `config/` (chokidar, depth 1).
-- `chat/`: tabs and chat routes (`index.ts`), `manager.ts` (tabs, `create`, `openWithPrompt`, restart continuation), `session.ts` (one Claude Agent SDK session), `rootMcp.ts` (the tools sessions get: `ui_action`, `report_progress`, planner, kanban, documents; the root session also has open_session, service_task, restart_claude_os, ...), `serviceTasks.ts`, `profile.ts`.
-- `memory/`: the vault; `util.ts` has `httpError`, `sha256`, `safely`, `backupFile`; `testkit.ts` is the test kit.
+- `tools/index.ts` `registerTools`: wires the `create*(ctx, deps)` factories (skills, mcp, actions, widgets, settings, account, commands, claudeMd, setup, admin, osPlugins with their server parts in `osPluginServers.ts`, projectIcons) and declares most `/api` routes inline; planner, documents, agents, projectFiles, admin, osPlugins, projectIcons declare their own; an enabled plugin's server part answers under `/api/plugins/<id>/`. It also watches `config/` (chokidar, depth 1).
+- `chat/`: tabs and chat routes (`index.ts`), `manager.ts` (tabs, `create`, `openWithPrompt`, restart continuation), `session.ts` (one Claude Agent SDK session), `rootMcp.ts` (the tools sessions get: `ui_action`, `report_progress`, planner, documents, and the tools of plugins' server parts such as the Kanban+ board; the root session also has open_session, service_task, restart_claude_os, ...), `serviceTasks.ts`, `profile.ts`.
+- `memory/`: the vault; `scan.ts` keeps the note files between scans, `catalog.ts` samples the map and builds the Storage panel figures; `util.ts` has `httpError`, `sha256`, `safely`, `backupFile`; `testkit.ts` is the test kit; `semantic/` is the search by meaning (embedding process, int8 vectors in `data/memory-semantic`, rank fusion with FTS).
 - `journal/`: indexes Claude Code session journals into SQLite.
 - `tools/approvals.ts`: `isApproved(text)` / `approve(text, target)` by sha256 in `data/approved-commands.json`. Commands of actions, widgets and widget views run only when approved; `data/` is out of reach of sessions, so editing config never approves anything. An unapproved run answers 409 with what to approve.
 
 ### web/src/
 
-- `home/` (home screen, map, widgets `Widgets.tsx`, `ActionMenu.tsx` with `MenuItem`), `work/` (a work tab: `WorkView`, `Composer`, `Transcript`, `Actions.tsx`, git panel, voice), `screens/` (settings, tools, sessions, kanban, plugins, admin), `components/` (`ui/` Button, Dialog, Input, Select...; `TitleBar`, `ContextMenu` with `claudeItems`), `lib/`, `popout/`, `notes/` (planner), `documents/`.
+- `home/` (home screen, map, widgets `Widgets.tsx`, `ActionMenu.tsx` with `MenuItem`), `work/` (a work tab: `WorkView`, `Composer`, `Transcript`, `Actions.tsx`, git panel, voice), `screens/` (settings, tools, sessions, plugins, admin, `PluginScreen` for a plugin's screen), `components/` (`ui/` Button, Dialog, Input, Select...; `TitleBar`, `ContextMenu` with `claudeItems`), `lib/`, `popout/`, `notes/` (planner), `documents/`.
 - `lib/api.ts`: `api<T>(path, { method, body })` (throws `ApiError`), `useApi<T>(path | null, topics)`, `setCached` for optimistic updates, `invalidateTopics`.
 - `lib/ws.ts`: the socket; routes `invalidate` and `ui` messages. `lib/store.ts`: `useApp` (`go(view)`, toasts), `toast`, `toastError`. `lib/tabs.ts`: `createTab`, `openSession`, `openTabWithPrompt`, ...
 - `lib/i18n.ts` with `lib/locales/ru.ts` and `en.ts`: `t(key, params)`. Keys come from `ru.ts`; `en.ts` is typed against them, so a key missing in English fails `typecheck`. Add every new string to both.
 - `lib/uiPlugins.tsx`: the host for Claude OS plugins' interface code. `lib/uiCommands.ts`: `runUiCommand`.
 - Styling: Tailwind classes with the theme of `styles.css` (`bg-card`, `text-muted`, `text-soft`, `text-dim`, `border-line2`, `text-accent`, `text-ok|warn|bad`); icons from `lucide-react`.
+- Two themes (`web/src/lib/theme.ts`, `data-theme` on `<html>`, kept in localStorage): every colour is a token that `[data-theme='light']` redefines. Tints are `bg-fg/[.06]`, not `bg-white/...`; data hues are `c-*`; a one-off uses the `light:` variant. The space map stays dark in both themes: what stands right on it takes `.u-on-sky` or `.on-dark`, light panels over it are nearly solid; text tokens are held to 4.5:1 by `scripts/theme-contrast.test.ts`. The theme choice also has Auto (follows the system scheme); an accent picked in Settings (`web/src/lib/accent.ts`, `data-accent` on `<html>`) replaces the accent tokens with values fitted to 4.5:1 per theme in code.
 
 ## How a change goes through
 

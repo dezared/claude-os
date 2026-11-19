@@ -1,14 +1,14 @@
 // Only temp dirs: claudeDir, the vault and data all live under mkdtemp. Nothing here reaches real data.
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import Fastify from 'fastify';
-import type { Analytics, Project, ProjectRemovalPreview, ProjectStructureNode, ProjectRemovalResult, SessionInfo, SessionRemovalPreview, SessionRemovalResult } from '../../shared/contract.ts';
+import type { Analytics, Project, ProjectRemovalPreview, ProjectRemovalResult, SessionInfo, SessionRemovalPreview, SessionRemovalResult } from '../../shared/contract.ts';
 import type { BusEvents, ChatApi, Ctx, Paths } from '../context.ts';
 import { noteSummary } from '../memory/store.ts';
 import { createJournal } from './index.ts';
@@ -51,7 +51,7 @@ describe('manage', () => {
     paths = {
       repo: join(base, 'repo'), data: join(base, 'data'), config: join(base, 'config'), plugins: join(base, 'plugins'), root: join(base, 'root'),
       service: join(base, 'service'), setup: join(base, 'setup'), claudeDir: join(base, 'claude'), claudeJson: join(base, 'claude', '.claude.json'), claudeBin: '/nonexistent/claude',
-      vault: join(base, 'vault'), newProjectsDir: join(base, 'new'),
+      vault: join(base, 'vault'),
     };
     mkdirSync(join(paths.claudeDir, 'projects'), { recursive: true });
     mkdirSync(paths.data, { recursive: true });
@@ -430,87 +430,6 @@ describe('manage', () => {
     assert.deepEqual(await order(), [alpha, other.key]);
     assert.equal((await req('PATCH', `/api/projects/${alpha}`, { folder: true })).status, 200);
     assert.deepEqual(await order(), [other.key, alpha]);
-    await close();
-  });
-
-  it('the structure of a folder: projects, what folds into them, plain folders, two levels down', async () => {
-    const tree = mkdtempSync(join(dir, 'tree-'));
-    const git = (cwd: string) => execFileSync('git', ['-C', cwd, 'init', '-q'], { stdio: 'ignore' });
-    mkdirSync(join(tree, 'repo', 'sub', 'deep'), { recursive: true });
-    git(join(tree, 'repo'));
-    mkdirSync(join(tree, 'plain', 'nested', 'deeper'), { recursive: true });
-    git(join(tree, 'plain', 'nested'));
-    mkdirSync(join(tree, '.hidden-dot'));
-    writeFileSync(join(tree, 'file.txt'), '');
-    const { body: repo } = await req<Project>('POST', '/api/projects/connect', { path: join(tree, 'repo', 'sub') });
-    assert.equal(repo.root, join(tree, 'repo'), 'a subfolder connects its repo');
-
-    const get = async (root: string) => req<ProjectStructureNode>('GET', `/api/projects/structure?root=${encodeURIComponent(root)}`);
-    const { status, body } = await get(tree);
-    assert.equal(status, 200);
-    const flat = (n: ProjectStructureNode, out: Record<string, object> = {}) => {
-      out[n.path.slice(tree.length) || '/'] = { kind: n.kind, project: n.project, reason: n.reason, ...(n.folded ? { folded: n.folded } : {}) };
-      n.children?.forEach((c) => flat(c, out));
-      return out;
-    };
-    assert.deepEqual(flat(body), {
-      '/': { kind: 'none', project: undefined, reason: undefined },
-      '/plain': { kind: 'none', project: undefined, reason: undefined },
-      '/plain/nested': { kind: 'none', project: undefined, reason: 'git' },
-      '/repo': { kind: 'project', project: repo.key, reason: 'git', folded: [join(tree, 'repo', 'sub')] },
-      '/repo/sub': { kind: 'inside', project: repo.key, reason: 'git' },
-    });
-    assert.equal(body.children?.[0].name, 'plain');
-
-    await req('POST', '/api/projects/connect', { path: join(tree, 'plain') });
-    assert.deepEqual(flat((await get(tree)).body)['/plain'], { kind: 'project', project: 'plain', reason: 'connected' });
-
-    mkdirSync(paths.service, { recursive: true });
-    const run = dirname(paths.service);
-    assert.equal((await get(run)).body.children?.find((c) => c.path === paths.service)?.kind, 'hidden');
-    assert.equal((await get('relative/dir')).status, 400);
-    assert.equal((await get(join(tree, 'missing'))).status, 400);
-    await close();
-  });
-
-  it('the structure: the cap of 200 folders says so, a symlink is not followed, a gone profile folder falls back to home, an unreadable root is a 400', async () => {
-    const wide = mkdtempSync(join(dir, 'wide-'));
-    for (let i = 0; i < 205; i++) mkdirSync(join(wide, `d${String(i).padStart(3, '0')}`));
-    const elsewhere = mkdtempSync(join(dir, 'elsewhere-'));
-    mkdirSync(join(elsewhere, 'inner'));
-    symlinkSync(elsewhere, join(wide, 'a-link'));
-    const get = async (query: string) => req<ProjectStructureNode & { error: string }>('GET', `/api/projects/structure${query}`);
-    const { status, body } = await get(`?root=${encodeURIComponent(wide)}`);
-    assert.equal(status, 200);
-    assert.equal(body.children?.length, 199, 'the root counts too');
-    assert.equal(body.truncated, true);
-    assert.ok(!body.children?.some((c) => c.name === 'a-link'));
-    assert.equal((await get(`?root=${encodeURIComponent(join(wide, 'd000'))}`)).body.truncated, undefined);
-
-    const home = mkdtempSync(join(dir, 'home-'));
-    const realHome = process.env.HOME;
-    process.env.HOME = home;
-    try {
-      (ctx as { settings?: unknown }).settings = { profile: () => ({ projectsDir: join(dir, 'gone') }) };
-      assert.equal((await get('')).body.path, home);
-      (ctx as { settings?: unknown }).settings = { profile: () => ({ projectsDir: wide }) };
-      assert.equal((await get('')).body.path, wide);
-    } finally {
-      process.env.HOME = realHome;
-    }
-
-    const locked = mkdtempSync(join(dir, 'locked-'));
-    mkdirSync(join(locked, 'inside'));
-    chmodSync(locked, 0o000);
-    try {
-      if (process.getuid?.() !== 0) {
-        const refused = await get(`?root=${encodeURIComponent(join(locked, 'inside'))}`);
-        assert.equal(refused.status, 400);
-        assert.match(refused.body.error, /cannot be read/);
-      }
-    } finally {
-      chmodSync(locked, 0o700);
-    }
     await close();
   });
 

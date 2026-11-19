@@ -1,20 +1,19 @@
-# Note rules (auto memory)
+# Note rules (memory)
 
-One fact per note, in English. Claude OS checks every write and rejects a malformed note with the reason.
+One fact per note, in English. Every write is checked; a malformed note is rejected with the reason.
 
 ---
-name: kebab-case-name           # = file name without .md, unique in the vault
+name: kebab-case-name   # = file name, unique
 description: one line, ≤120 chars: the question this note answers
 metadata:
   type: user | feedback | project | reference
-  tags: [one, two]              # 1–3, lowercase kebab, reuse existing tags
+  tags: [one, two]      # 1–3, kebab, reuse the project's tags
 ---
 The fact in one or two sentences.
 **Why:** …  **How to apply:** …  (feedback, project)   Source: URL or path (reference)
 
-- Search first (memory_search); update the existing note, never duplicate.
-- Keep what code and git cannot tell: decisions, reasons, constraints, preferences, external facts.
-- Body under 1500 characters. No headings.
-- Link [[name]] only when the note cannot be understood without the other.
-- Never edit MEMORY.md: Claude OS builds it from descriptions.
-- Correct or delete a note that became false.
+- MEMORY.md lists some notes; memory_search finds all: use it before work on a topic and before writing.
+- After meaningful work, note what code and git cannot tell: decisions and why, bug causes, constraints, preferences.
+- Update a matching note, never duplicate. Notes are unlimited.
+- Body under 1500 characters, no headings. Link [[name]] only when needed.
+- Never edit MEMORY.md. Fix or delete a note that became false.

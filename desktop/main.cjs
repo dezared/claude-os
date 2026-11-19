@@ -3,6 +3,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createAppsWatcher } = require('./apps.cjs');
+const { bootHtml, screenHtml } = require('./bootScreen.cjs');
 const install = require('./install.json');
 
 const BG = '#09090b';
@@ -19,15 +20,16 @@ const problems = [];
 const notices = new Set(); // a collected Notification no longer reports its click
 // Start screens, and the edit menu and the tray until the page sends its labels: in the language of the OS. Read after `ready`.
 const TEXT = {
-  en: { open: 'Open', quit: 'Quit', retry: 'Retry', starting: 'Starting Claude OS…', firstRun: 'The first start takes a few seconds.', failed: 'Claude OS did not start', noAnswer: 'No answer from WSL within 60 seconds.', exited: 'wsl.exe exited with code', cut: 'Cut', copy: 'Copy', paste: 'Paste' },
-  ru: { open: 'Открыть', quit: 'Выйти', retry: 'Повторить', starting: 'Запускаю Claude OS…', firstRun: 'Первый запуск занимает несколько секунд.', failed: 'Claude OS не запустился', noAnswer: 'Нет ответа от WSL за 60 секунд.', exited: 'wsl.exe завершился с кодом', cut: 'Вырезать', copy: 'Копировать', paste: 'Вставить' }, // shippable-allow: the Russian start screens
+  en: { open: 'Open', quit: 'Quit', retry: 'Retry', starting: 'Starting Claude OS…', firstRun: 'The first start takes a few seconds.', failed: 'Claude OS did not start', noAnswer: 'No answer from WSL within 60 seconds.', stages: { wsl: 'Waking WSL', check: 'Looking for a running server', update: 'Restarting the server after an update', spawn: 'Starting the server', open: 'Opening the panel' }, exited: 'wsl.exe exited with code', cut: 'Cut', copy: 'Copy', paste: 'Paste' },
+  ru: { open: 'Открыть', quit: 'Выйти', retry: 'Повторить', starting: 'Запускаю Claude OS…', firstRun: 'Первый запуск занимает несколько секунд.', failed: 'Claude OS не запустился', noAnswer: 'Нет ответа от WSL за 60 секунд.', stages: { wsl: 'Поднимаю WSL', check: 'Ищу запущенный сервер', update: 'Перезапускаю сервер после обновления', spawn: 'Запускаю сервер', open: 'Открываю панель' }, exited: 'wsl.exe завершился с кодом', cut: 'Вырезать', copy: 'Копировать', paste: 'Вставить' }, // shippable-allow: the Russian start screens
 };
 const text = () => TEXT[app.getLocale().toLowerCase().startsWith('ru') ? 'ru' : 'en'];
 const labels = { open: null, quit: null, cut: null, copy: null, paste: null }; // what the page sent, in the UI language
 const CLOSE_ANSWER_MS = 1500;
 const appIcon = path.join(__dirname, 'icon.ico');
 const canFullscreen = process.platform === 'win32';
-const webPreferences = () => ({ contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, 'preload.cjs') });
+// `plugins` turns on Chromium's own PDF viewer, which IDE+ shows a PDF in; Electron keeps it off by default.
+const webPreferences = () => ({ contextIsolation: true, nodeIntegration: false, sandbox: true, plugins: true, preload: path.join(__dirname, 'preload.cjs') });
 const popouts = new Map(); // key -> { win, kind }: one window per session, one for the planner
 const POPOUT_SIZE = { width: 480, height: 680 };
 const PLANNER_WIDTH = 650; // room to read and edit a note
@@ -58,26 +60,18 @@ function rememberFullscreen(on) {
   try { fs.writeFileSync(boundsFile(), JSON.stringify({ ...readBounds(), fullscreenChoice: on })); } catch {}
 }
 
-const screenHtml = (title, detail, retry) => `<!doctype html><meta charset="utf-8"><title>Claude OS</title>
-<style>
-html,body{height:100%;margin:0;background:${BG};color:#fafafa;font:13px/1.5 "Segoe UI",system-ui,sans-serif;-webkit-app-region:drag}
-body{display:flex;align-items:center;justify-content:center}
-main{max-width:640px;padding:32px}
-i{display:block;width:8px;height:8px;border-radius:2px;background:#d97757;margin-bottom:14px;${retry ? '' : 'animation:p 1.1s ease-in-out infinite'}}
-@keyframes p{50%{opacity:.25}}
-pre{color:#a1a1aa;white-space:pre-wrap;font:12px/1.5 Consolas,monospace;margin:8px 0 16px;user-select:text}
-a{color:#d97757;-webkit-app-region:no-drag}
-</style><main><i></i><div>${title}</div><pre>${detail}</pre>${retry ? `<a href="claudeos://retry">${text().retry}</a>` : ''}</main>`;
-
 const showScreen = (title, detail = '', retry = false) =>
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(screenHtml(title, detail, retry))}`);
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(screenHtml(title, detail, retry ? text().retry : null, BG))}`);
+
+const showStage = (id) => win.webContents.executeJavaScript(`window.stage&&stage(${JSON.stringify(id)})`).catch(() => {});
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 }
 
-// Resolves with the login URL. The wsl.exe child is left running on purpose, see serve.mjs.
-function startServer() {
+// Resolves with the login URL. The wsl.exe child is left running on purpose, see serve.mjs; its exit after that
+// means the server or the whole WSL is gone, and `onLost` hears of it.
+function startServer(onStage, onLost) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       'wsl.exe',
@@ -90,22 +84,26 @@ function startServer() {
     child.on('error', (e) => { clearTimeout(timer); reject(e); });
     child.stderr.on('data', (d) => { err += d.toString(); });
     child.stdout.on('data', (d) => {
+      for (const st of d.toString().matchAll(/^STAGE (\w+)/gm)) onStage(st[1]);
       out += d.toString();
       const m = out.match(/READY (\S+)/);
       if (m) { clearTimeout(timer); resolve(m[1]); }
     });
     child.on('exit', (code) => {
       clearTimeout(timer);
+      if (out.includes('READY ')) return onLost();
       reject(new Error(`${text().exited} ${code}.\n${err}`));
     });
   });
 }
 
 async function boot() {
-  showScreen(text().starting, text().firstRun);
+  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(bootHtml(Date.now(), text(), BG))}`).catch(() => {});
   try {
-    const url = await startServer();
+    // A dead WSL takes the server with it and nothing in the page can bring it back: the window starts both again.
+    const url = await startServer(showStage, () => { if (!quitting) setTimeout(boot, 2000); });
     origin = new URL(url).origin;
+    showStage('open');
     await win.loadURL(url);
   } catch (e) {
     problems.push(String(e.message));
@@ -212,7 +210,7 @@ function rememberPopout(kind, patch) {
 
 // The page names what it wants, the address is built here: nothing else can be loaded into a window.
 function popoutTarget(req) {
-  if (req?.kind === 'root' || req?.kind === 'planner' || req?.kind === 'service') return { kind: req.kind, key: req.kind, route: `/?popout=${req.kind}` };
+  if (req?.kind === 'root' || req?.kind === 'planner' || req?.kind === 'service' || req?.kind === 'btw') return { kind: req.kind, key: req.kind, route: `/?popout=${req.kind}` };
   if (req?.kind === 'tab' && typeof req.id === 'string' && /^[\w-]{1,64}$/.test(req.id)) return { kind: 'tab', key: `tab:${req.id}`, route: `/?popout=tab&id=${req.id}` };
   return null;
 }

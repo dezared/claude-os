@@ -4,6 +4,7 @@ import { watch, type FSWatcher } from 'chokidar';
 import type { Ctx, MemoryApi } from '../context.ts';
 import { migrate } from './migrate.ts';
 import { registerSearch } from './noteIndex.ts';
+import { registerStorage } from './storage.ts';
 import { createGuard } from './guard.ts';
 import { gitInfo, renderState } from './state.ts';
 import { createStore } from './store.ts';
@@ -11,12 +12,14 @@ import { httpError, safely } from './util.ts';
 import { copyPreview, copyProject, vaultStatus } from './vault.ts';
 import { registerWikiMigration } from './wikiMigration.ts';
 import { createWikiSync } from './wikiSync.ts';
+import { watchDirs } from './watchDirs.ts';
 import { usageForPath } from '../journal/usage.ts';
 
 // Extras for sibling modules and tests, beyond the shared MemoryApi.
 export interface MemoryApiExt extends MemoryApi {
   noteHead(id: string, lines?: number): string | null;
   refreshStates(): Promise<void>;
+  ready: Promise<void>; // the start pass checked every note file against the disk
 }
 
 const STATE_THROTTLE_MS = 30_000;
@@ -25,7 +28,8 @@ const MAX_STATE_CHARS = 1000;
 
 export function registerMemory(ctx: Ctx): void {
   const store = createStore(ctx);
-  const search = registerSearch(ctx, store);
+  const searcher = registerSearch(ctx, store);
+  registerStorage(ctx, store, searcher);
   const sync = createWikiSync(ctx, store);
   const syncPaths = (paths: string[]) => {
     try {
@@ -35,8 +39,9 @@ export function registerMemory(ctx: Ctx): void {
     }
   };
   const { watchVault, close } = watchMemory(ctx, (paths) => {
-    store.touch();
+    store.touch(paths);
     syncPaths(paths);
+    searcher.changed();
     ctx.invalidate('memory', 'projects');
   });
   const stateDir = join(ctx.paths.vault, '_state');
@@ -82,12 +87,14 @@ export function registerMemory(ctx: Ctx): void {
       if (Date.now() - mtime > STATE_STALE_MS) scheduleStates();
       return safely(() => readFileSync(statePath(key), 'utf8').slice(0, MAX_STATE_CHARS), null);
     },
-    search,
+    search: searcher.search,
+    find: searcher.find,
     recentNotes: (limit) => store.recentNotes(limit),
     touch: () => store.touch(),
     noteHead: (id, lines) => store.noteHead(id, lines),
     guardTool: createGuard(ctx, store, registerWikiMigration(ctx, store, sync)).check,
     refreshStates,
+    ready: store.ready,
   };
   ctx.memory = api;
 
@@ -97,7 +104,10 @@ export function registerMemory(ctx: Ctx): void {
   app.put<{ Params: { id: string }; Body: { markdown?: unknown; version?: unknown } }>('/api/memory/notes/:id', async (req, reply) => {
     try {
       const saved = store.save(req.params.id, req.body?.markdown, req.body?.version);
-      if (saved.version !== req.body?.version) syncPaths([saved.path]); // MEMORY.md and the log are current in the response
+      if (saved.version !== req.body?.version) {
+        syncPaths([saved.path]); // MEMORY.md and the log are current in the response
+        searcher.changed();
+      }
       return saved;
     } catch (err) {
       const e = err as Error & { statusCode?: number; version?: string };
@@ -149,7 +159,7 @@ export function registerMemory(ctx: Ctx): void {
 
 // Changed paths over a 300 ms debounce: the vault without its generated and private dirs, and the old-place memory dirs.
 function watchMemory(ctx: Ctx, onChange: (paths: string[]) => void): { watchVault(): void; close(): Promise<void> } {
-  const watchers: FSWatcher[] = [];
+  const watchers: Pick<FSWatcher, 'close'>[] = [];
   const pending = new Set<string>();
   let timer: NodeJS.Timeout | null = null;
   const changed = (_event: string, path: string) => {
@@ -167,12 +177,8 @@ function watchMemory(ctx: Ctx, onChange: (paths: string[]) => void): { watchVaul
   function watchVault() {
     if (vaultWatched || !existsSync(ctx.paths.vault)) return;
     vaultWatched = true;
-    const vault = ctx.paths.vault;
-    const ownTop = ['kanban', '_index', '_log']; // the board watches its own folder; the index and the log are generated
-    watchers.push(watch(vault, {
-      ignoreInitial: true,
-      ignored: (p) => relative(vault, p).split(sep).some((part, i) => part === '_state' || part.startsWith('.') || (i === 0 && ownTop.includes(part))),
-    }).on('all', changed));
+    const dirs = watchDirs(ctx.paths.vault, (path) => changed('', path));
+    watchers.push({ close: async () => dirs.close() });
   }
 
   // Only <dir>/memory: the journals next to it change all the time and belong to the journal module.

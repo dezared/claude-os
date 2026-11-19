@@ -102,11 +102,17 @@ test('no stop button and no mode select inside the input', async () => {
   assert.equal(await page.getByRole('button', { name: 'Прервать ход' }).count(), 0, 'nothing to stop');
 });
 
-test('stop sits to the right of "Claude работает" and exists only during the turn', async () => {
+test('stop sits to the right of the live turn status and exists only during the turn', async () => {
   await say(homeBox(), 'SLOW');
-  const status = page.getByRole('status').filter({ hasText: 'Claude работает' });
+  const status = page.getByTestId('turn-status');
   await status.waitFor();
   const stop = status.getByRole('button', { name: 'Прервать ход' });
+  // A shimmering verb, the turn time and the tokens written so far, all growing while the text streams.
+  await status.getByText(/\d:\d\d · ↓ .+ токенов/).waitFor();
+  assert.match(await status.locator('.text-shimmer').innerText(), /…$/);
+  // This context asks for reduced motion: the shimmer stops and the verb stays readable in plain colour.
+  const verb = await status.locator('.text-shimmer').evaluate((el) => ({ animation: getComputedStyle(el).animationName, color: getComputedStyle(el).color }));
+  assert.deepEqual([verb.animation, verb.color === 'rgba(0, 0, 0, 0)'], ['none', false]);
   // Measured in one go: the transcript keeps scrolling under the stream.
   const { pill, text } = await status.evaluate((el) => {
     const rect = (e: Element) => { const r = e.getBoundingClientRect(); return { x: r.x, middle: r.y + r.height / 2 }; };
@@ -176,7 +182,7 @@ test('work tab: same row, stop by the status, mode under the input', async () =>
   const stops = page.getByRole('button', { name: 'Прервать ход' });
   assert.equal(await stops.count(), 0);
   await say(field, 'SLOW');
-  const status = page.getByRole('status').filter({ hasText: 'Claude работает' });
+  const status = page.getByTestId('turn-status');
   await status.getByRole('button', { name: 'Прервать ход' }).waitFor();
   await page.screenshot({ path: '/tmp/cos-composer-work.png', timeout: 90_000 });
   await status.getByRole('button', { name: 'Прервать ход' }).click();
@@ -187,7 +193,7 @@ test('work tab: same row, stop by the status, mode under the input', async () =>
   await homeBox().waitFor();
 });
 
-test('history: the panel opens by itself after a reload and after a server restart', async () => {
+test('history: an open panel stays open after a reload and after a server restart', async () => {
   await panelTitle().waitFor();
   await say(homeBox(), 'запомни это');
   await page.getByText('echo: запомни это').waitFor();
@@ -333,8 +339,9 @@ test('with motion on: the field, the panel and /clear really animate', async () 
     await field.waitFor();
     const heightAnimations = (l: Locator) => l.evaluate((el) => el.getAnimations().map((a) => (a as CSSTransition).transitionProperty));
 
-    // The panel opens from its starting style.
+    // A new window starts with the panel closed; opening it runs from its starting style.
     const panel = p.locator('.root-panel');
+    await p.getByRole('button', { name: 'Показать ответ' }).click();
     await panel.waitFor();
     const row = field.locator('..');
     const running = () => row.evaluate((el) => el.getAnimations().length);
@@ -370,7 +377,10 @@ test('with motion on: the field, the panel and /clear really animate', async () 
 });
 
 test('@ on the real server: a kanban task is found by its id and goes in as the path of its .md file', async () => {
-  const made = await srv.api<{ id: string; path: string }>('POST', '/api/kanban/cards', { title: 'Задача из меню' });
+  // The board is the Kanban+ plugin's, enabled as the first-run setup would.
+  const plan = await srv.api<{ sha: string }>('POST', '/api/os-plugins/kanban-plus/preview', { action: 'enable' });
+  assert.equal((await srv.api('POST', '/api/os-plugins/kanban-plus/enable', { confirmed: true, sha: plan.body.sha })).status, 200);
+  const made = await srv.api<{ id: string; path: string }>('POST', '/api/plugins/kanban-plus/cards', { title: 'Задача из меню' });
   assert.match(made.body.id, /^TASK-\d+$/);
   assert.ok(readFileSync(made.body.path, 'utf8').includes('title: "Задача из меню"'), 'the card is a file');
   const box = homeBox();

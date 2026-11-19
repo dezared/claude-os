@@ -19,6 +19,14 @@ import { t } from '@/lib/i18n';
 import { ActionMenu, type MenuItem } from './ActionMenu';
 
 const LEAVE_MS = 240; // .root-panel in styles.css
+const PANEL_KEY = 'claude-os.rootPanel';
+
+type Panel = 'closed' | 'open' | 'large';
+// Closed until the user opens it: the history alone does not open the panel on the way into Home.
+const readPanel = (): Panel => {
+  const saved = localStorage.getItem(PANEL_KEY);
+  return saved === 'open' || saved === 'large' ? saved : 'closed';
+};
 
 export function RootChat() {
   const tabs = useApi<Tab[]>('/api/tabs', ['tabs']);
@@ -26,8 +34,9 @@ export function RootChat() {
   const chat = useChat((s) => (root ? s.tabs[root.id] : undefined)) ?? emptyChat();
   const draft = useApp((s) => s.rootDraft);
   const setDraft = useApp((s) => s.setRootDraft);
-  // The reply lives above the field and leaves the sphere visible: closed, normal or expanded.
-  const [panel, setPanel] = useState<'closed' | 'open' | 'large'>('closed');
+  // The reply lives above the field and leaves the sphere visible: closed, normal or expanded. The user's choice outlives a reload.
+  const [panel, setPanel] = useState<Panel>(readPanel);
+  useEffect(() => localStorage.setItem(PANEL_KEY, panel), [panel]);
   const [leaving, setLeaving] = useState(false);
   const [gone, setGone] = useState<ChatState | null>(null); // what /clear just wiped, on screen until the panel has left
   const [confirmReset, setConfirmReset] = useState(false);
@@ -49,14 +58,6 @@ export function RootChat() {
     if (!pending && !working) return;
     setPanel((p) => (p === 'closed' ? 'open' : p));
   }, [pending, working]);
-
-  // Coming back to the app shows where the last session stopped.
-  const shownHistory = useRef(false);
-  useEffect(() => {
-    if (!chat.loaded || shownHistory.current) return;
-    shownHistory.current = true;
-    if (hasContent) setPanel((p) => (p === 'closed' ? 'open' : p));
-  }, [chat.loaded, hasContent]);
 
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const leave = () => {

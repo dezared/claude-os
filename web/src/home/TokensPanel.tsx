@@ -25,7 +25,7 @@ function DayBars({ days }: { days: DayTokens[] }) {
             <i
               className={cn(
                 'block min-h-px w-full rounded-t-[2px] transition-colors duration-100',
-                i === values.length - 1 ? 'bg-accent' : hover === i ? 'bg-white/60' : 'bg-white/20',
+                i === values.length - 1 ? 'bg-accent' : hover === i ? 'bg-fg/60' : 'bg-fg/20',
               )}
               style={{ height: `${(v / max) * 100}%` }}
             />
@@ -55,10 +55,10 @@ function MainVsSub({ a }: { a: Analytics }) {
   if (total === 0) return null;
   return (
     <section>
-      <SectionTitle><Split size={11} className="mr-1 inline align-[-1px] text-[#8da9c9]" />{t('tokens.mainVsSub')}</SectionTitle>
+      <SectionTitle><Split size={11} className="mr-1 inline align-[-1px] text-c-blue" />{t('tokens.mainVsSub')}</SectionTitle>
       <div className="mb-2 flex h-1.5 gap-0.5">
         <i className="block rounded-l-[2px] bg-accent" style={{ width: `${(main / total) * 100}%` }} />
-        <i className="block flex-1 rounded-r-[2px] bg-white/25" />
+        <i className="block flex-1 rounded-r-[2px] bg-fg/25" />
       </div>
       <div className="flex justify-between text-[11.5px]">
         <span className="text-muted">
@@ -76,7 +76,7 @@ function TopSkills() {
   const skills = useApi<Skill[]>('/api/skills', ['skills']);
   return (
     <section>
-      <SectionTitle><Sparkles size={11} className="mr-1 inline align-[-1px] text-[#e6c07b]" />{t('tokens.skillRuns')}</SectionTitle>
+      <SectionTitle><Sparkles size={11} className="mr-1 inline align-[-1px] text-c-gold" />{t('tokens.skillRuns')}</SectionTitle>
       <Boundary query={skills} skeleton={<Skeleton lines={3} />}>
         {(list) => {
           const top = list.filter((s) => s.usageCount > 0).sort((a, b) => b.usageCount - a.usageCount).slice(0, 3);
@@ -86,8 +86,8 @@ function TopSkills() {
             <div key={s.id} className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-0.5">
               <ContextArea items={() => skillMenu(s)}><span className="truncate text-soft">{s.name}</span></ContextArea>
               <span className="text-[11.5px] text-muted">{fmtInt(s.usageCount)}</span>
-              <div className="col-span-2 h-0.5 rounded-[1px] bg-white/10">
-                <i className={cn('block h-full rounded-[1px]', i === 0 ? 'bg-accent' : 'bg-white/45')} style={{ width: `${(s.usageCount / max) * 100}%` }} />
+              <div className="col-span-2 h-0.5 rounded-[1px] bg-fg/10">
+                <i className={cn('block h-full rounded-[1px]', i === 0 ? 'bg-accent' : 'bg-fg/45')} style={{ width: `${(s.usageCount / max) * 100}%` }} />
               </div>
             </div>
           ));
@@ -136,7 +136,7 @@ export function TokensPanel() {
           {analytics.data && (
             <>
               <section>
-                <SectionTitle><Bot size={11} className="mr-1 inline align-[-1px] text-[#8fb8a0]" />{t('tokens.modelOutput')}</SectionTitle>
+                <SectionTitle><Bot size={11} className="mr-1 inline align-[-1px] text-c-green" />{t('tokens.modelOutput')}</SectionTitle>
                 {analytics.data.byModel.length === 0 ? (
                   <Empty>{t('tokens.noModels')}</Empty>
                 ) : (

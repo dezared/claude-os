@@ -32,7 +32,7 @@ export function HourChart({ hours }: { hours: number[] }) {
         <span className="absolute top-0.5 left-0 text-[10px] text-dim">{fmtTokens(max)}</span>
         {hours.map((v, h) => (
           <div key={h} className="flex h-full min-w-0 flex-1 items-end" title={t('an.hourTip', { h: String(h).padStart(2, '0'), value: fmtTokens(v) })}>
-            <i className={cn('mx-auto block min-h-px w-[min(100%,24px)] rounded-t-[3px]', h === now ? 'bg-accent' : 'bg-white/22')} style={{ height: `${(v / max) * 100}%` }} />
+            <i className={cn('mx-auto block min-h-px w-[min(100%,24px)] rounded-t-[3px]', h === now ? 'bg-accent' : 'bg-fg/22')} style={{ height: `${(v / max) * 100}%` }} />
           </div>
         ))}
       </div>

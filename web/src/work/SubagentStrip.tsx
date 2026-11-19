@@ -1,9 +1,11 @@
 import { Bot } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApi } from '@/lib/api';
+import { useFlip } from '@/lib/flip';
 import { cn, fmtTokens } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import type { ActiveSubagent, TaskInfo } from '@/lib/types';
+import { isSubagent } from '../../../shared/contract.ts';
 import { useSubagentView } from './SubagentView';
 
 const POLL_MS = 2500; // the topic alone is too slow: the journal index commits in batches and "what it does now" moves faster
@@ -23,7 +25,7 @@ export function activeRows(journal: ActiveSubagent[], tasks: Record<string, Task
   const known = Object.values(tasks);
   const rows: Row[] = [];
   for (const x of known) {
-    if (x.status !== 'running' || (x.type !== 'local_agent' && x.agentType === null)) continue;
+    if (x.status !== 'running' || !isSubagent(x)) continue;
     const j = journal.find((a) => a.id === x.id || (x.toolUseId !== null && a.toolUseId === x.toolUseId));
     rows.push({ key: x.id, agentType: x.agentType ?? j?.agentType ?? null, description: x.description || j?.description || null, doing: j?.doing ?? x.lastTool, startedAt: j?.startedAt ?? null, tokens: x.tokens });
   }
@@ -64,13 +66,16 @@ export function SubagentStrip({ sessionId, tasks = noTasks, enabled = true, clas
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [running]);
+  const box = useRef<HTMLDivElement>(null);
+  useFlip(box); // a subagent that starts or finishes: its row grows in or fades out, the others slide
 
   if (!running || !sessionId) return null;
   return (
-    <div role="group" aria-label={t('subagent.stripAria')} className={cn('subagent-strip enter-fade flex max-h-24 flex-col overflow-auto rounded-lg border border-line2 bg-card py-0.5', className)}>
+    <div ref={box} role="group" aria-label={t('subagent.stripAria')} className={cn('subagent-strip enter-fade relative flex max-h-24 flex-col overflow-auto rounded-lg border border-line2 bg-card py-0.5', className)}>
       {rows.map((r) => (
         <button
           key={r.key}
+          data-flip={r.key}
           type="button"
           title={t('subagent.open')}
           onClick={() => open({ sessionId, key: r.key, title: r.description })}

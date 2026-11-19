@@ -261,7 +261,7 @@ test('universe: a new note appears live, nothing else moves', async () => {
   await page.waitForTimeout(500);
   const boxes = () => page.locator('.u-label.on[data-project]').evaluateAll((els) => Object.fromEntries(els.map((e) => [(e as HTMLElement).dataset.project, (e as HTMLElement).style.transform])));
   const before = await boxes();
-  data.graph.nodes.push({ id: 'fresh-note', title: 'fresh note', file: 'fresh.md', project: 'alpha-service', connected: true, degree: 0, live: false, mtime: Date.now(), summary: 'Just written', issues: [] });
+  data.graph.nodes.push({ id: 'fresh-note', title: 'fresh note', file: 'fresh.md', project: 'alpha-service', connected: true, degree: 0, live: false, mtime: Date.now(), summary: 'Just written', issues: [], type: null, tags: [], modified: null });
   fx!.push({ t: 'invalidate', topics: ['memory'] });
   await page.getByRole('group', { name: 'Заметки' }).locator('b').getByText('163', { exact: true }).waitFor();
   await page.waitForTimeout(500);
@@ -425,6 +425,60 @@ test('work tab header stays on one line at 1280', async () => {
   }));
   assert.ok(fits, 'header overflows');
   assert.ok(Math.max(...tops) - Math.min(...tops) <= 1, `buttons on different lines: ${tops}`);
+});
+
+// The pill's colour is the state's own token, in both themes; only a working one pulses.
+const pillTone = (page: Page) =>
+  page.locator('.work-bar .status-pill').evaluate((pill) => {
+    const tone = { working: '--color-accent', idle: '--color-ok', waiting_permission: '--color-warn', blocked: '--color-bad', ended: '--color-muted' }[(pill as HTMLElement).dataset.status!]!;
+    const probe = document.createElement('span');
+    probe.style.color = `var(${tone})`;
+    document.body.append(probe);
+    const want = getComputedStyle(probe).color;
+    probe.remove();
+    const dot = pill.querySelector('span')!;
+    return { status: (pill as HTMLElement).dataset.status, matches: getComputedStyle(pill).color === want, pulses: dot.classList.contains('dot-working') };
+  });
+
+test('work bar: each status has its own tone in both themes', async () => {
+  const page = await open(undefined, 'ru-RU', openTab('t1'));
+  await page.locator('.work-bar .status-pill').getByText('ждёт разрешения').waitFor();
+  const seen: Record<string, string> = {};
+  for (const [id, title] of [['t1', 'alpha-service'], ['t2', 'beta-web · задача 2'], ['t3', 'Перенос очереди']] as const) {
+    await page.getByRole('tab', { name: new RegExp(title) }).first().click();
+    await page.locator('.work-bar strong', { hasText: title }).waitFor();
+    for (const theme of ['dark', 'light']) {
+      await page.evaluate((th) => (document.documentElement.dataset.theme = th), theme);
+      const tone = await pillTone(page);
+      assert.ok(tone.matches, `${id} ${tone.status} in ${theme}`);
+      assert.equal(tone.pulses, tone.status === 'working', `${id} pulse`);
+      seen[id] = tone.status!;
+    }
+    await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+  }
+  assert.deepEqual(seen, { t1: 'waiting_permission', t2: 'idle', t3: 'working' });
+  const colors = await page.evaluate(() => ['--color-accent', '--color-ok', '--color-warn'].map((v) => getComputedStyle(document.documentElement).getPropertyValue(v)));
+  assert.equal(new Set(colors).size, 3, 'three different tones');
+  assert.deepEqual(errors, []);
+});
+
+test('composer: Remote Control is marked beside the mode while it is on', async () => {
+  const page = await open(undefined, 'ru-RU', openTab('t2'));
+  const mode = page.getByRole('button', { name: /^Режим разрешений/ });
+  await mode.waitFor();
+  const mark = page.getByRole('status', { name: /^Remote Control включён/ });
+  assert.equal(await mark.count(), 0);
+  fx!.data.tabs.find((x) => x.id === 't2')!.remoteControl = true;
+  fx!.push({ t: 'invalidate', topics: ['tabs'] });
+  await mark.waitFor();
+  assert.equal(await mark.innerText(), 'Удалённо');
+  assert.match((await mark.getAttribute('title')) ?? '', /claude\.ai\/code.*Выключить: \/rc/);
+  // Right after the mode button, in the same line under the composer.
+  assert.equal(await mode.evaluate((b) => b.nextElementSibling?.classList.contains('remote-mark')), true);
+  fx!.data.tabs.find((x) => x.id === 't2')!.remoteControl = false;
+  fx!.push({ t: 'invalidate', topics: ['tabs'] });
+  await mark.waitFor({ state: 'detached' });
+  assert.deepEqual(errors, []);
 });
 
 test('english: dictionary, compact numbers and switcher that persists', async () => {
@@ -751,6 +805,36 @@ test('new tab dialog, Ctrl+digit switching, close', async () => {
   await page.getByRole('tab', { name: /задача три/ }).waitFor({ state: 'detached' });
 });
 
+test('closing a working tab or one with subagents asks first, by the button and by the middle click; an idle one closes at once', async () => {
+  const data = defaultFixture();
+  const t1 = data.tabs.find((x) => x.id === 't1')!;
+  Object.assign(t1, { status: 'working', attention: false });
+  Object.assign(data.tabs.find((x) => x.id === 't2')!, { subagents: 2 });
+  data.tabs.push({ ...t1, id: 't9', title: 'тихая', order: 9, status: 'idle', subagents: 0, sessionId: null });
+  const page = await open(data);
+  await homeButton(page).waitFor();
+  const tab = (name: RegExp) => page.getByRole('tab', { name });
+  const ask = page.getByRole('dialog', { name: 'Закрыть работающую вкладку?' });
+
+  await tab(/alpha-service/).hover();
+  await page.getByRole('button', { name: 'Закрыть вкладку alpha-service' }).click();
+  await ask.getByText('«alpha-service» сейчас работает').waitFor();
+  await ask.getByRole('button', { name: 'Отмена' }).click();
+  await ask.waitFor({ state: 'detached' });
+  assert.equal(fx!.calls.filter((c) => c.method === 'DELETE').length, 0, 'cancel closes nothing');
+  await tab(/alpha-service/).waitFor();
+
+  await tab(/beta-web/).click({ button: 'middle' });
+  await ask.waitFor();
+  await ask.getByRole('button', { name: 'Закрыть и остановить' }).click();
+  await tab(/beta-web/).waitFor({ state: 'detached' });
+
+  await tab(/тихая/).click({ button: 'middle' });
+  await tab(/тихая/).waitFor({ state: 'detached' });
+  assert.equal(await ask.count(), 0, 'an idle tab does not ask');
+  assert.deepEqual(errors, []);
+});
+
 test('new tab picker: Claude takes a plain request, the default project is never a folder, recent sessions with search', async () => {
   const data = defaultFixture();
   data.projects.push({ ...data.projects[0], key: 'workspace', name: 'workspace', root: '/home/test', folder: true, liveCount: 0, lastActivity: Date.now() });
@@ -920,6 +1004,47 @@ test('tabs that fit: no count, no fade, the wheel does nothing', async () => {
   const count = page.locator('.tabstrip-count');
   assert.equal(await count.evaluate((el) => el.getBoundingClientRect().width), 0);
   assert.equal(await count.evaluate((el) => getComputedStyle(el).opacity), '0');
+});
+
+test('tab dots: subagents at work give a count and a ripple, the queue gives no badge, reduced motion keeps a still ring', async () => {
+  const data = defaultFixture();
+  data.tabs[2].subagents = 2; // idle, its subagents still at work
+  data.tabs.push({ ...data.tabs[2], id: 'w1', title: 'с подагентом', order: 4, status: 'working', subagents: 1 });
+  data.tabs.push({ ...data.tabs[2], id: 'w2', title: 'просто работает', order: 5, status: 'working', subagents: 0 });
+  const page = await open(data, 'ru-RU', undefined, { motion: true });
+  const tab = (title: string) => page.locator(`[role=tab][title^="${title}"]`);
+  const dot = (title: string) => tab(title).locator('[role=img]').first();
+  const classes = async (title: string) => (await dot(title).getAttribute('class'))!.split(' ');
+  await tab('с подагентом').waitFor();
+
+  assert.equal(await tab('alpha-service').getByText('+1').count(), 0, 'the queued count is not on the tab any more');
+  assert.equal(await tab('alpha-service').getByRole('img', { name: /Подагентов/ }).count(), 0);
+  assert.ok((await classes('alpha-service')).includes('bg-accent'), 'needs you stays as it was');
+  assert.ok(!(await classes('alpha-service')).includes('dot-agents'));
+
+  const idle = await classes('beta-web');
+  assert.ok(idle.includes('dot-agents') && idle.includes('bg-fg/35') && !idle.includes('dot-working'), idle.join(' '));
+  assert.equal(await tab('beta-web').getByRole('img', { name: 'Подагентов за работой: 2' }).innerText(), '2');
+  const both = await classes('с подагентом');
+  assert.ok(both.includes('dot-agents') && both.includes('dot-working'), both.join(' '));
+  assert.equal(await tab('с подагентом').getByRole('img', { name: 'Подагентов за работой: 1' }).count(), 1);
+  const plain = await classes('просто работает');
+  assert.ok(plain.includes('dot-working') && !plain.includes('dot-agents'), plain.join(' '));
+  assert.equal(await tab('просто работает').getByRole('img', { name: /Подагентов/ }).count(), 0);
+  assert.equal(await dot('beta-web').evaluate((el) => getComputedStyle(el, '::before').animationName), 'agent-ripple');
+
+  data.tabs[2].subagents = 0;
+  fx!.push({ t: 'invalidate', topics: ['tabs'] });
+  await tab('beta-web').getByRole('img', { name: /Подагентов/ }).waitFor({ state: 'detached' });
+  const calm = await classes('beta-web');
+  assert.ok(calm.includes('bg-fg/35') && !calm.includes('dot-agents'), calm.join(' '));
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const still = await dot('с подагентом').evaluate((el) => ({ name: getComputedStyle(el, '::before').animationName, transform: getComputedStyle(el, '::before').transform, after: getComputedStyle(el, '::after').display }));
+  assert.equal(still.name, 'none');
+  assert.notEqual(still.transform, 'none');
+  assert.equal(still.after, 'none');
+  assert.deepEqual(errors, []);
 });
 
 test('at any window width the buttons on both sides stay clear of the tabs and inside the window', async () => {

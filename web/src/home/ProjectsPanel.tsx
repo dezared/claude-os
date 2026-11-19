@@ -1,9 +1,11 @@
 import { ChevronRight, FolderPlus, History, Sparkle, TriangleAlert } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { useContextMenu } from '@/components/ContextMenu';
+import { Fold, Roll } from '@/components/Motion';
 import { ProjectIcon } from '@/components/ProjectIcon';
 import { Boundary, Empty } from '@/components/states';
 import { useApi } from '@/lib/api';
+import { useFlip } from '@/lib/flip';
 import { cn, fmtAgo } from '@/lib/format';
 import { t, tn } from '@/lib/i18n';
 import { useApp } from '@/lib/store';
@@ -46,6 +48,7 @@ function ProjectRow({
     <div
       ref={area}
       data-own-menu
+      data-flip={p.key}
       onPointerEnter={() => mapped && onFocus(p.key)}
       onPointerLeave={() => mapped && onFocus(undefined)}
       onFocus={() => mapped && onFocus(p.key)}
@@ -58,7 +61,7 @@ function ProjectRow({
         title={`${p.root} · ${p.sessionCount} ${tn('unit.session', p.sessionCount)}${live ? `, ${t('projects.active', { n: p.liveCount })}` : ''}`}
         className="press flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1.5 pr-1.5 pl-2 text-left focus-visible:-outline-offset-2"
       >
-        <ProjectIcon project={p.key} name={p.name} color={color} size={16} dim={!live} />
+        <ProjectIcon project={p.key} name={p.name} color={color} size={16} dim={!live} folder={p.folder} />
         <span className={cn('min-w-0 flex-1 truncate', live ? 'text-fg' : 'text-soft')}>{p.name}</span>
         {p.memoryDrift > 0 && (
           <span title={t('memory.drift', { n: p.memoryDrift })} className="flex flex-none items-center gap-0.5 text-[11px] text-accent">
@@ -107,13 +110,15 @@ export const ProjectsPanel = memo(function ProjectsPanel({
   const go = useApp((s) => s.go);
   const setConnectOpen = useApp((s) => s.setConnectOpen);
   const [miscOpen, setMiscOpen] = useState(false);
+  const list = useRef<HTMLDivElement>(null);
+  useFlip(list); // the most recent project rises: the rows slide to their new order
   const row = (p: Project) => (
     <ProjectRow key={p.key} p={p} mapped={!!onMap?.has(p.key)} color={palette.css(p.key)} onFocus={onFocusProject} onFly={onFly} onSessions={onSessions} onMigrate={onMigrate} onRemove={onRemove} />
   );
 
   return (
     <aside className="flex min-h-0 flex-1 flex-col">
-        <div className="panel-scroll min-h-0 flex-1 overflow-auto px-3 pb-2">
+        <div ref={list} className="panel-scroll relative min-h-0 flex-1 overflow-auto px-3 pb-2">
           <Boundary query={projects} empty={(d) => (d.length === 0 ? <Empty>{t('projects.empty')}</Empty> : null)}>
             {(all) => {
               const main = all.filter((p) => !p.misc && p.key !== coreKey).sort(byActivity);
@@ -131,9 +136,9 @@ export const ProjectsPanel = memo(function ProjectsPanel({
                       >
                         <ChevronRight size={12} className={cn('flex-none transition-transform duration-150', miscOpen && 'rotate-90')} />
                         <span className="flex-1">{t('projects.misc')}</span>
-                        <span className="text-[11.5px]">{misc.length}</span>
+                        <Roll value={misc.length} className="text-[11.5px]" />
                       </button>
-                      {miscOpen && misc.map(row)}
+                      <Fold show={miscOpen}>{misc.map(row)}</Fold>
                     </>
                   )}
                 </>
@@ -143,11 +148,11 @@ export const ProjectsPanel = memo(function ProjectsPanel({
         </div>
         <div className="flex-none border-t border-line2 p-1.5">
           <button type="button" onClick={() => setConnectOpen(true)} className="press flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-muted hover:bg-raised hover:text-fg">
-            <FolderPlus size={13} className="text-[#8fb8a0]" />
+            <FolderPlus size={13} className="text-c-green" />
             {t('connect.action')}
           </button>
           <button type="button" onClick={() => go({ kind: 'sessions' })} className="press flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-muted hover:bg-raised hover:text-fg">
-            <History size={13} className="text-[#8da9c9]" />
+            <History size={13} className="text-c-blue" />
             {t('projects.allSessions')}
           </button>
         </div>
@@ -159,5 +164,5 @@ export const ProjectsPanel = memo(function ProjectsPanel({
 export function ProjectsCount({ coreKey }: { coreKey: string | null }) {
   const projects = useApi<Project[]>('/api/projects', ['projects']);
   // Claude OS is the core of the map, not one of the projects on it.
-  return <span className="flex-none text-[11.5px] text-dim">{projects.data ? projects.data.filter((p) => p.key !== coreKey).length : null}</span>;
+  return <span className="flex-none text-[11.5px] text-dim">{projects.data ? <Roll value={projects.data.filter((p) => p.key !== coreKey).length} /> : null}</span>;
 }

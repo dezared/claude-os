@@ -51,7 +51,7 @@ test('300 notes stay within 100 lines and 10,000 bytes', () => {
   for (let i = 0; i < 40; i++) assert.ok(out.includes(`[user-${String(i).padStart(3, '0')}]`), `user ${i} present`);
   assert.ok(!out.includes('## project'), 'feedback fills the budget before any project');
   const kept = lines.filter((l) => l.startsWith('- [')).length;
-  assert.equal(lines.at(-1), `+${300 - kept} more: _index/demo.md, or memory_search`);
+  assert.equal(lines.at(-1), `+${300 - kept} more notes, all searchable: memory_search, or _index/demo.md`);
   // Most recent feedback wins within the type.
   assert.ok(out.includes('[feedback-079]'));
   assert.ok(!out.includes('[feedback-000]'));
@@ -81,6 +81,15 @@ test('same input renders byte-identical output', () => {
   const b = renderMemoryIndex('demo', [...notes].reverse());
   assert.equal(a, b);
   assert.equal(renderCatalog('demo', notes), renderCatalog('demo', [...notes].reverse()));
+});
+
+test('a large project lists the types in order, newest first, ties by name, and counts the rest', () => {
+  const notes = Array.from({ length: 3000 }, (_, i) => note(`n-${String(i).padStart(4, '0')}`, { type: i % 10 ? 'project' : 'user', recency: i % 5 }));
+  const out = renderMemoryIndex('demo', notes);
+  const listed = [...out.matchAll(/^- \[(n-\d+)\]/gm)].map((m) => m[1]);
+  const users = notes.filter((n) => n.type === 'user').sort((a, b) => b.recency - a.recency || (a.name < b.name ? -1 : 1)).map((n) => n.name);
+  assert.deepEqual(new Set(listed), new Set(users.slice(0, listed.length)), 'the newest user notes, the oldest left out');
+  assert.match(out, new RegExp(`\\+${3000 - listed.length} more notes`));
 });
 
 test('catalog lists every note with its vault path link and tags', () => {

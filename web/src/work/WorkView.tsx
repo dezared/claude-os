@@ -9,15 +9,15 @@ import { cn, fmtAgo, fmtInt, fmtTokens, isLive, shortPath, statusLabel, tokenSum
 import { prettyModel } from '@/lib/model-name';
 import { efforts, modelGroups } from '@/lib/models';
 import { t } from '@/lib/i18n';
+import { usePresence } from '@/lib/motion';
 import { toastError, useApp } from '@/lib/store';
 import { closeTab, createTab } from '@/lib/tabs';
 import type { ChatEvent, SessionInfo, Tab } from '@/lib/types';
 import { attachTab } from '@/lib/ws';
 import { PopoutButton } from '@/popout/PopoutButton';
-import { StatusDot } from '@/components/StatusDot';
 import { ActionBar, ActionButton, findTerminalAction, useActions } from './Actions';
 import { Composer } from './Composer';
-import { FilesPanel } from './FilesPanel';
+import { fileChanges, FilesPanel } from './FilesPanel';
 import { IdeButton } from './IdeButton';
 import { SidePanel } from './SidePanel';
 import { useTabCommand } from './tabCommands';
@@ -28,11 +28,20 @@ import { Transcript } from './Transcript';
 const GitPanel = lazy(() => import('./GitPanel').then((m) => ({ default: m.GitPanel })));
 const DocumentTab = lazy(() => import('@/documents/DocumentTab').then((m) => ({ default: m.DocumentTab })));
 
+// The same tones as the Sessions screen: each state reads at a glance, in both themes.
+const PILL_TONE: Record<Tab['status'], string> = {
+  working: 'bg-accent-bg text-accent',
+  idle: 'bg-ok/12 text-ok',
+  waiting_permission: 'bg-warn/12 text-warn',
+  blocked: 'bg-bad/12 text-bad',
+  ended: 'bg-raised text-muted',
+};
+
 export function StatusPill({ status }: { status: Tab['status'] }) {
   return (
-    <span className={cn('flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] whitespace-nowrap', status === 'ended' ? 'bg-raised text-muted' : 'bg-accent-bg text-accent')}>
-      <StatusDot status={status} />
-      {statusLabel(status)}
+    <span data-status={status} className={cn('status-pill flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] whitespace-nowrap', PILL_TONE[status])}>
+      <span aria-hidden="true" className={cn('block size-1.5 flex-none rounded-full bg-current', status === 'working' && 'dot-working')} />
+      <span key={status} className="motion-fade">{statusLabel(status)}</span>
     </span>
   );
 }
@@ -60,7 +69,7 @@ function NeighbourWarning({ tab, tabs }: { tab: Tab; tabs: Tab[] }) {
   const busy = tabs.filter((t) => t.id !== tab.id && t.project === tab.project && !t.worktree && t.status === 'working');
   if (busy.length === 0) return null;
   return (
-    <div role="status" className="flex flex-none items-center gap-2 border-b border-line2 bg-[#241511] px-5 py-1 text-xs text-soft">
+    <div role="status" className="flex flex-none items-center gap-2 border-b border-line2 bg-banner px-5 py-1 text-xs text-soft">
       <TriangleAlert size={12} className="text-accent" />
       {t('work.neighbour', { title: busy[0].title })}
     </div>
@@ -75,18 +84,21 @@ function LiveTab({ tab, tabs }: { tab: Tab; tabs: Tab[] }) {
   }, [tab.id]);
 
   const status = chat.status ?? tab.status;
+  // Results only arrive after their tool call, so a new results object is the only time the count can change.
+  const edits = useMemo(() => fileChanges(chat), [chat.results]);
   const [gitOpen, setGitOpen] = useState(false);
+  const git = usePresence(gitOpen); // the panel fades out over the chat before it unmounts
   const closeGit = useMemo(() => () => setGitOpen(false), []);
   useTabCommand(tab.id, 'git', () => setGitOpen(true));
 
   return (
     <div className="relative min-h-0 flex-1 overflow-auto app:grid app:grid-cols-[auto_minmax(0,1fr)_320px] app:overflow-hidden">
-      {gitOpen && (
+      {git.mounted && (
         <Suspense fallback={null}>
-          <GitPanel tab={tab} turnKey={status} onClose={closeGit} />
+          <GitPanel tab={tab} turnKey={status} onClose={closeGit} className={cn(git.leaving && 'is-leaving')} />
         </Suspense>
       )}
-      {tab.kind === 'root' ? <span /> : <FilesPanel tab={tab} turnKey={status} />}
+      {tab.kind === 'root' ? <span /> : <FilesPanel tab={tab} turnKey={`${status}|${edits}`} />}
       <section className="flex h-[70vh] min-w-0 flex-col border-b border-line2 app:h-auto app:min-h-0 app:border-r app:border-b-0">
         <div className="work-bar">
           <strong className="max-w-56 min-w-0 flex-none truncate text-[13px] font-medium" title={tab.kind === 'root' ? t('root.caption') : tab.title}>{tab.kind === 'root' ? t('root.caption') : tab.title}</strong>
@@ -100,8 +112,8 @@ function LiveTab({ tab, tabs }: { tab: Tab; tabs: Tab[] }) {
           <ModelEffort tab={tab} model={chat.model} />
           <Button className="flex-none" aria-pressed={gitOpen} onClick={() => setGitOpen(!gitOpen)}><GitBranch size={12} />{t('git.button')}</Button>
           <IdeButton tab={tab} />
-          <PopoutButton tab={tab} />
           <ActionBar tab={tab} />
+          <PopoutButton tab={tab} />
         </div>
         <NeighbourWarning tab={tab} tabs={tabs} />
         {chat.error && !chat.loaded ? (
@@ -182,12 +194,12 @@ function ReadonlyTab({ tab }: { tab: Tab }) {
               {t('work.continueHere')}
             </Button>
           )}
-          <PopoutButton tab={tab} />
           <Button variant={ended && tab.sessionId ? 'outline' : 'primary'} className="flex-none" onClick={() => void createTab({ project: tab.project ?? undefined, cwd: tab.cwd })}>
             <Plus size={12} />
             {t('work.newSessionHere')}
           </Button>
           {terminal && <ActionButton action={terminal} tab={tab} label={t('composer.openTerminal')} />}
+          <PopoutButton tab={tab} />
         </div>
         <p className="flex-none border-b border-line2 px-5 py-1.5 text-xs text-dim">
           {ended

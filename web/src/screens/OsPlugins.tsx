@@ -3,12 +3,15 @@ import { useEffect, useState } from 'react';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { ClaudeMark } from '@/components/ClaudeMark';
 import { ContextArea, claudeItems } from '@/components/ContextMenu';
+import { IconTile, MaskGlyph } from '@/components/IconTile';
 import { Boundary, Empty, Skeleton } from '@/components/states';
 import { Button, Checkbox, Dialog } from '@/components/ui';
 import type { MenuItem } from '@/home/ActionMenu';
+import { SWATCHES } from '@/home/universe/colors';
+import { hash32 } from '@/home/universe/hash';
 import { spendNote } from '@/lib/account';
 import { api, setCached, useApi } from '@/lib/api';
-import { cn, fmtAgo } from '@/lib/format';
+import { fmtAgo } from '@/lib/format';
 import { locale, t, type Key } from '@/lib/i18n';
 import { askClaude } from '@/lib/microtask';
 import { toast, toastError, useApp } from '@/lib/store';
@@ -25,6 +28,7 @@ const KIND: Record<OsPluginChange['kind'], { icon: typeof Plug; label: Key }> = 
   ui: { icon: PanelTop, label: 'osp.kindUi' },
   config: { icon: FileCog, label: 'osp.kindConfig' },
   kit: { icon: LayoutTemplate, label: 'osp.kindKit' },
+  server: { icon: Server, label: 'osp.kindServer' },
 };
 const DEPENDENCY: Record<OsPluginDependency['kind'], { icon: typeof Plug; label: Key }> = {
   config: { icon: FileCog, label: 'osp.depKindConfig' },
@@ -36,6 +40,13 @@ const DEP_STATE: Record<OsPluginDependency['state'], { tone: 'ok' | 'warn' | und
   met: { tone: 'ok', label: 'osp.depMet' },
   missing: { tone: 'warn', label: 'osp.depMissing' },
   unknown: { tone: undefined, label: 'osp.depUnknown' },
+};
+// The process a plugin's server part keeps running; external: another program already served the address.
+const SERVER_STATE: Record<NonNullable<OsPluginRow['serverStatus']>['state'], { tone: 'ok' | 'warn' | 'bad' | undefined; label: Key }> = {
+  starting: { tone: undefined, label: 'osp.serverStarting' },
+  running: { tone: 'ok', label: 'osp.serverRunning' },
+  failed: { tone: 'bad', label: 'osp.serverFailed' },
+  stopped: { tone: undefined, label: 'osp.serverStopped' },
 };
 const VERBS = {
   enable: { title: 'osp.enableTitle', hint: 'osp.enableHint', done: 'osp.enabled', button: 'osp.enable', withSetup: 'osp.enableAndSetup' },
@@ -54,13 +65,12 @@ async function runSetup(setup: OsPluginSetup, plugin: string) {
   await api(`/api/tabs/${encodeURIComponent(tab.id)}/send`, { method: 'POST', body: { text: setup.prompt } }).catch(toastError);
 }
 
-/** The manifest's own library icon through an img, which can run nothing; a plain box when it names none. */
+/** The manifest's own library icon in the tile every project icon has, in a palette colour of its own; a box when it names none. */
 function PluginIcon({ p, size = 32 }: { p: OsPluginRow; size?: number }) {
-  const inner = Math.round(size * 0.56);
   return (
-    <span aria-hidden className={cn('flex flex-none items-center justify-center rounded-lg bg-white/[.06] transition-opacity duration-150', !p.enabled && 'opacity-55')} style={{ width: size, height: size }}>
-      {p.icon ? <img alt="" src={`data:image/svg+xml;utf8,${encodeURIComponent(p.icon)}`} style={{ width: inner, height: inner }} /> : <Package size={inner} className="text-dim" />}
-    </span>
+    <IconTile ink={SWATCHES[hash32(p.id, 52) % SWATCHES.length]} size={size} dim={!p.enabled}>
+      {p.icon ? <MaskGlyph svg={p.icon} /> : <Package />}
+    </IconTile>
   );
 }
 
@@ -264,6 +274,17 @@ function rowItems(p: OsPluginRow, review: Review): MenuItem[] {
   ];
 }
 
+function ServerState({ s }: { s: NonNullable<OsPluginRow['serverStatus']> }) {
+  const state = SERVER_STATE[s.state];
+  const label = s.external && s.state === 'running' ? 'osp.serverExternal' : state.label;
+  return <span key={label} className="enter-fade" data-testid="plugin-server-state"><Tag tone={state.tone} title={s.detail ?? undefined}>{t(label)}</Tag></span>;
+}
+
+function ServerFailure({ p }: { p: OsPluginRow }) {
+  if (p.serverStatus?.state !== 'failed') return null;
+  return <p className="enter-fade mb-1 text-xs wrap-anywhere text-bad">{t('osp.serverFailedWhy', { why: p.serverStatus.detail ?? '–' })}</p>;
+}
+
 function States({ p }: { p: OsPluginRow }) {
   return (
     <>
@@ -271,6 +292,7 @@ function States({ p }: { p: OsPluginRow }) {
       {p.enabled && p.installedVersion !== p.version && p.version && <Tag tone="accent">{t('osp.newVersion', { v: p.version })}</Tag>}
       {p.changed && <Tag tone="accent" title={t('osp.changedHint')}>{t('osp.changed')}</Tag>}
       {p.enabled && p.setup && <Tag tone="warn">{t('osp.notSet')}</Tag>}
+      {p.serverStatus && <ServerState s={p.serverStatus} />}
     </>
   );
 }
@@ -278,7 +300,7 @@ function States({ p }: { p: OsPluginRow }) {
 function PluginRow({ p, review }: { p: OsPluginRow; review: Review }) {
   const open = () => useApp.getState().go({ kind: 'entity', type: 'os-plugin', id: p.id });
   return (
-    <ContextArea items={rowItems(p, review)} className="grid grid-cols-[auto_minmax(0,1.6fr)_minmax(0,1fr)_90px_auto] items-center gap-4 border-b border-line2 px-5 py-2.5 transition-colors duration-150 hover:bg-white/[.02]">
+    <ContextArea items={rowItems(p, review)} className="grid grid-cols-[auto_minmax(0,1.6fr)_minmax(0,1fr)_90px_auto] items-center gap-4 border-b border-line2 px-5 py-2.5 transition-colors duration-150 hover:bg-fg/[.02]">
       <PluginIcon p={p} />
       <div className="min-w-0">
         <div className="flex items-center gap-2">
@@ -287,6 +309,7 @@ function PluginRow({ p, review }: { p: OsPluginRow; review: Review }) {
         </div>
         <div className="truncate text-[11px] text-dim" title={said(p.description, p.descriptionRu) ?? undefined}>{said(p.description, p.descriptionRu)}</div>
         {p.errors.map((e) => <div key={e} className="text-[11px] wrap-anywhere text-bad">{e}</div>)}
+        {p.autoEnableFailed && <div className="text-[11px] wrap-anywhere text-warn">{t('osp.autoEnableFailed', { why: p.autoEnableFailed })}</div>}
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-1"><States p={p} /></div>
       <Contents p={p} />
@@ -376,6 +399,8 @@ export default function OsPluginPage(props: EntityPageProps) {
         </div>
       </div>
       {p.errors.map((e) => <p key={e} className="mb-1 text-xs wrap-anywhere text-bad">{e}</p>)}
+      {p.autoEnableFailed && <p className="mb-1 text-xs wrap-anywhere text-warn">{t('osp.autoEnableFailed', { why: p.autoEnableFailed })}</p>}
+      <ServerFailure p={p} />
       {features.length > 0 && (
         <section aria-label={t('osp.features')} className="mb-4">
           <h2 className="mb-1 text-[11.5px] font-medium text-muted">{t('osp.features')}</h2>

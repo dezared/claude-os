@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useContextMenu } from '@/components/ContextMenu';
 import { Button, IconButton } from '@/components/ui';
 import { api, useApi } from '@/lib/api';
+import { btwContext, openBtw } from '@/lib/btw';
 import { updateChat, type ChatState } from '@/lib/chat';
 import { CHAT_WIDTHS, nextChatWidth, setChatWidth, useChatWidth, useChatWidthClass } from '@/lib/chatWidth';
 import { setFocusMode, useFocusMode } from '@/lib/focus';
@@ -12,8 +13,8 @@ import { toast, toastError } from '@/lib/store';
 import type { Attachment, CommandInfo, Tab } from '@/lib/types';
 import { pluginCommands, PluginComposerMarks, useUiPlugins, withPluginCommands } from '@/lib/uiPlugins';
 import { insertMention, MENTION_MIME, onTag } from '@/notes/mention';
-import { BTW_COMMAND } from '../../../shared/commands.ts';
-import { askBtw, BtwCards } from './Btw';
+import { BTW_COMMAND, SECRET_COMMAND } from '../../../shared/commands.ts';
+import { hasSecretLine, SECRET_PREFIX } from '../../../shared/secrets.ts';
 import { ChipInput, chipAt, CHIP_KINDS, findChips } from './ChipInput';
 import { CommandHelp, isOffChat } from './CommandHelp';
 import { useComposerLayout } from './composerLayout';
@@ -21,8 +22,10 @@ import { MentionMenu } from './MentionMenu';
 import { mentionRows, mentionSource, mentionSources, openedQuery, type MentionItem, type MentionRow } from './mentionSources';
 import { BYPASS, ModeControl, setTabMode } from './ModeControl';
 import { QueueRow } from './QueueRow';
+import { sendTabCommand } from './tabCommands';
 import { t } from '@/lib/i18n';
 import { addPaste, expandPastes, PASTE_THRESHOLD, pasteText, prunePastes } from './pastes';
+import { useSecretField } from './secretInput';
 import { VoiceButton } from './voice/VoiceButton';
 
 // What is typed outlives the page like a note: read from localStorage, written a moment after the last key.
@@ -131,6 +134,29 @@ function detectPopup(value: string, caret: number): Pick<Extract<Popup, { kind: 
   return null;
 }
 
+// /focus and /view are answered in the browser. Null: not one of them; false: wrong words, a toast says so and the text stays.
+function runViewCommand(name: string, arg: string, focusOn: boolean): boolean | null {
+  if (name === 'focus') {
+    if (arg && arg !== 'on' && arg !== 'off') {
+      toast(t('focus.usage'), 'error');
+      return false;
+    }
+    const on = arg ? arg === 'on' : !focusOn;
+    setFocusMode(on);
+    toast(t(on ? 'focus.turnedOn' : 'focus.turnedOff'));
+    return true;
+  }
+  if (name !== 'view') return null;
+  const width = arg ? CHAT_WIDTHS.find((w) => w === arg) : nextChatWidth(useChatWidth.getState().width);
+  if (!width) {
+    toast(t('view.usage'), 'error');
+    return false;
+  }
+  setChatWidth(width);
+  toast(t('view.set', { width: t(widthName[width]) }));
+  return true;
+}
+
 export function Composer({
   tab,
   chat,
@@ -176,6 +202,7 @@ export function Composer({
     ];
   });
   const effort = effortLevel(tab.effort);
+  const secret = useSecretField(ref);
 
   const lastDetect = useRef('');
   const setText = (v: string) => {
@@ -255,7 +282,7 @@ export function Composer({
   useEffect(() => {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [active, popup?.kind]);
-  const rows: MentionRow[] = popup?.kind === 'mention' ? mentionRows(popup.query, popup.source, popup.found, popup.files, (key) => t(key)) : [];
+  const rows: MentionRow[] = popup?.kind === 'mention' ? mentionRows(popup.query, popup.source, popup.found, popup.files) : [];
   const count = popup?.kind === 'slash' ? slashItems.length : rows.length;
 
   // React also reports "selection changed" on key presses: Esc must not reopen the list, arrows must not reset it.
@@ -303,10 +330,13 @@ export function Composer({
     document.execCommand('insertText', false, full);
   };
 
-  // insertText goes through the field's own input event: React state and undo both see it.
+  // insertText goes through the field's own input event: React state and undo both see it. A /secret value is never a paste chip: those are kept in localStorage.
+  // The field as it will be decides: the line the paste lands on, or any `/secret` line inside the paste.
   const insertPaste = (pasted: string) => {
-    ref.current?.focus();
-    document.execCommand('insertText', false, pasted.length > PASTE_THRESHOLD ? addPaste(tab.id, pasted) : pasted);
+    const field = ref.current;
+    field?.focus();
+    const secret = hasSecretLine((field?.value.slice(0, field.selectionStart).split('\n').at(-1) ?? '').concat(pasted));
+    document.execCommand('insertText', false, pasted.length > PASTE_THRESHOLD && !secret ? addPaste(tab.id, pasted) : pasted);
   };
 
   // Ctrl+V with the focus elsewhere on the screen, on the transcript for example.
@@ -380,38 +410,29 @@ export function Composer({
     if ((!body && attachments.length === 0) || sending || dictating) return; // dictating: the field holds a state, not a message
     const typed = /^\/(\S+)\s*([\s\S]*)$/.exec(body);
     if (typed?.[1] === BTW_COMMAND) {
-      if (typed[2]) {
-        void askBtw(tab.id, typed[2]);
+      openBtw(btwContext(tab), typed[2] || undefined);
+      setText('');
+      setPopup(null);
+      return;
+    }
+    if (typed?.[1] === SECRET_COMMAND || hasSecretLine(text)) {
+      setSending(true); // a second Enter while the server answers must not save it twice
+      if (typed?.[1] === SECRET_COMMAND && !typed[2]) setText(SECRET_PREFIX);
+      else if (await secret.submit(tab.id, text, attachments)) {
         setText('');
-      } else {
-        setText(`/${BTW_COMMAND} `);
-        ref.current?.focus();
+        setAttachments([]);
       }
+      setSending(false);
       setPopup(null);
+      ref.current?.focus();
       return;
     }
-    if (typed?.[1] === 'focus') {
-      if (typed[2] && typed[2] !== 'on' && typed[2] !== 'off') {
-        toast(t('focus.usage'), 'error');
-        return;
+    const local = typed ? runViewCommand(typed[1], typed[2], focusOn) : null;
+    if (local !== null) {
+      if (local) {
+        setText('');
+        setPopup(null);
       }
-      const on = typed[2] ? typed[2] === 'on' : !focusOn;
-      setFocusMode(on);
-      toast(t(on ? 'focus.turnedOn' : 'focus.turnedOff'));
-      setText('');
-      setPopup(null);
-      return;
-    }
-    if (typed?.[1] === 'view') {
-      const width = typed[2] ? CHAT_WIDTHS.find((w) => w === typed[2]) : nextChatWidth(useChatWidth.getState().width);
-      if (!width) {
-        toast(t('view.usage'), 'error');
-        return;
-      }
-      setChatWidth(width);
-      toast(t('view.set', { width: t(widthName[width]) }));
-      setText('');
-      setPopup(null);
       return;
     }
     const pluginCommand = pluginCommands(plugins).find((c) => c.name === typed?.[1]);
@@ -432,6 +453,7 @@ export function Composer({
       return;
     }
     onSubmit?.();
+    sendTabCommand(tab.id, 'bottom');
     setSending(true);
     const sentAttachments = attachments;
     // The field empties at once, the saved copy waits for the server's answer: a crash in between loses nothing.
@@ -461,7 +483,7 @@ export function Composer({
   return (
     <div ref={menuArea} className={cn('mx-auto w-full', !compact && widthClass)}>
       {chat.queue.length > 0 && (
-        <div className="mb-2 flex flex-col gap-1" aria-label={t('composer.queueAria')}>
+        <div className="enter-fade mb-2 flex flex-col gap-1" aria-label={t('composer.queueAria')}>
           <div className="text-[11px] text-dim">{t('composer.queueTitle', { n: fmtInt(chat.queue.length) })}</div>
           {chat.queue.map((q) => (
             <QueueRow key={q.id ?? q.seq} tabId={tab.id} item={q} editing={q.id !== null && editingQueue === q.id} setEditing={(on) => setEditingQueue(on ? q.id : null)} />
@@ -474,7 +496,6 @@ export function Composer({
           {t('mode.bypassActive')}
         </div>
       )}
-      <BtwCards tabId={tab.id} box={ref} hint={text.trim() === `/${BTW_COMMAND}`} />
       <CommandHelp name={helpFor} tab={tab} onClose={() => setHelpFor(null)} />
       <div
         onDragOver={(e) => {
@@ -504,7 +525,7 @@ export function Composer({
         )}
       >
         {popup && (
-          <div ref={listRef} role="listbox" aria-label={popup.kind === 'slash' ? t('composer.slashAria') : popup.source ? t(mentionSource(popup.source)?.label ?? 'composer.mentionAria') : t('composer.mentionAria')} className="enter-pop absolute inset-x-0 bottom-full z-10 mb-1.5 max-h-72 overflow-auto rounded-xl popover p-1">
+          <div ref={listRef} role="listbox" aria-label={popup.kind === 'slash' ? t('composer.slashAria') : popup.source ? mentionSource(popup.source)?.label() ?? t('composer.mentionAria') : t('composer.mentionAria')} className="enter-pop absolute inset-x-0 bottom-full z-10 mb-1.5 max-h-72 overflow-auto rounded-xl popover p-1">
             {popup.kind === 'slash' && !commands.data && known.length === 0 && (commands.error ? <div className="px-2.5 py-1.5 text-xs text-accent">{commands.error}</div> : <div className="px-2.5 py-1.5 text-xs text-dim">{t('composer.loadingCommands')}</div>)}
             {popup.kind === 'slash' && known.length > 0 && slashItems.length === 0 && <div className="px-2.5 py-1.5 text-xs text-dim">{t('composer.noSlash')}</div>}
             {popup.kind === 'mention' && popup.source && rows.length === 0 && <div className="px-2.5 py-1.5 text-xs text-dim">{t('composer.sourceEmpty')}</div>}
@@ -525,7 +546,7 @@ export function Composer({
                 <span className="max-w-[45%] flex-none truncate font-mono" title={c.argumentHint ?? undefined}>/{c.name}{c.argumentHint && <span className="ml-1.5 text-dim">{c.argumentHint}</span>}</span>
                 <span className="min-w-0 flex-1 truncate text-[11.5px] text-dim" title={c.description ?? undefined}>{c.description}</span>
                 {c.needsTerminal && <span className="flex-none text-[11px] text-accent">{t('composer.terminalOnly')}</span>}
-                <span className="flex-none rounded bg-white/[.07] px-1.5 text-[10.5px] leading-[1.6] text-dim">{t(sourceKey[c.source])}</span>
+                <span className="flex-none rounded bg-fg/[.07] px-1.5 text-[10.5px] leading-[1.6] text-dim">{t(sourceKey[c.source])}</span>
               </button>
             ))}
             {popup.kind === 'mention' && <MentionMenu rows={rows} active={active} setActive={setActive} opened={mentionSource(popup.source)} onPick={pickRow} onBack={() => openSection(null)} />}
@@ -534,7 +555,7 @@ export function Composer({
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
             {attachments.map((a, i) => (
-              <div key={`${a.name}${i}`} className="group flex max-w-52 items-center gap-1.5 rounded-md border border-line bg-raised py-0.5 pr-0.5 pl-1">
+              <div key={`${a.name}${i}`} className="enter-pop group flex max-w-52 items-center gap-1.5 rounded-md border border-line bg-raised py-0.5 pr-0.5 pl-1">
                 {a.mediaType.startsWith('image/') ? (
                   <img alt={a.name} src={`data:${a.mediaType};base64,${a.base64}`} className="size-10 rounded object-cover" />
                 ) : (
@@ -558,8 +579,10 @@ export function Composer({
             placeholder={placeholder}
             spellCheck={false}
             onChange={(e) => {
-              setText(e.target.value);
-              refreshPopup(e.target.value, e.target.selectionStart);
+              const value = secret.edit(text, e.target.value, e.target.selectionStart);
+              if (!text && value) sendTabCommand(tab.id, 'bottom'); // a new message begins: the conversation it answers comes into view
+              setText(value);
+              refreshPopup(value, e.target.selectionStart);
             }}
             onSelect={(e) => refreshPopup(e.currentTarget.value, e.currentTarget.selectionStart)}
             onPaste={(e) => {
@@ -638,7 +661,10 @@ export function Composer({
             className={cn('max-h-[40vh] min-h-7 min-w-0 flex-1 resize-none bg-transparent py-1 text-sm leading-5 [field-sizing:content] outline-none placeholder:text-dim')}
           />
           <div ref={controls} className="ml-auto flex flex-none items-end gap-1">
-          <VoiceButton box={ref} onText={setText} onPreview={setTextState} onBusy={setDictating} />
+          {/* No dictation into a /secret field: the words would land unmasked, past its own edit. */}
+          <fieldset disabled={hasSecretLine(text)} className="contents">
+            <VoiceButton box={ref} onText={setText} onPreview={setTextState} onBusy={setDictating} />
+          </fieldset>
           <label title={t('composer.attach')} className="press flex size-7 flex-none items-center justify-center rounded-md text-dim hover:bg-raised hover:text-fg has-focus-visible:outline-2 has-focus-visible:outline-accent">
             <input
               type="file"

@@ -84,7 +84,7 @@ test('tools: a panel per subject, statistics first, questions only open a dialog
     const dialog = page.getByRole('dialog');
     await dialog.getByRole('radio', { name: 'Очистить' }).click();
     await dialog.getByText(/find what is not needed/).waitFor();
-    await dialog.getByText(/Входит в|подписк|API/).waitFor();
+    await dialog.getByText(/Выполняет Claude|API/).waitFor();
     assert.equal(await dialog.getByText(/тратит токены/i).count(), 0);
     await dialog.getByRole('button', { name: 'Отмена' }).click();
   }
@@ -95,6 +95,7 @@ test('MCP: real statuses, what it gives, where active, a login action, masked co
   const page = await open({ kind: 'tools', pane: 'mcp' });
   await page.getByText('Нужен вход: 1').waitFor();
   await page.getByText('spawn ENOENT').first().waitFor();
+  await page.getByText('VPN only').waitFor(); // the user's note in the server's row
 
   // Opening the panel asks the CLI; reading alone starts nothing else.
   for (let i = 0; i < 100 && !fx!.calls.some((c) => c.path === '/api/admin/mcp/status'); i++) await page.waitForTimeout(50);
@@ -275,6 +276,7 @@ test('MCP: a right click deletes with the file named, moves and changes through 
 test('pages: an MCP server by project, a plugin, a hook, a project; absent data stays absent', async () => {
   const page = await open({ kind: 'entity', type: 'mcp', id: 'semble' });
   await page.getByRole('heading', { name: 'semble' }).waitFor();
+  await page.locator('.sheet').getByText('VPN only').waitFor(); // the user's note, next to the status
   await page.getByText('Все проекты').waitFor();
   await page.getByText('Вызовы по инструментам').waitFor();
   await page.getByText('Instant code search for any repository.').waitFor();
@@ -333,11 +335,11 @@ test('analytics: Today, labelled forecast, weekly limit; no tools content; no do
 test('settings: menu of sections, one at a time, everything reachable', async () => {
   const page = await open({ kind: 'settings' });
   const nav = page.getByRole('navigation', { name: 'Разделы настроек' });
-  await page.getByRole('radio', { name: 'EN' }).waitFor();
+  await page.getByRole('radio', { name: 'EN', exact: true }).waitFor();
 
   await nav.getByRole('button', { name: 'IDE и программы' }).click();
   await page.getByText('Visual Studio Community 2022').waitFor();
-  assert.equal(await page.getByRole('radio', { name: 'EN' }).count(), 0);
+  assert.equal(await page.getByRole('radio', { name: 'EN', exact: true }).count(), 0);
 
   await nav.getByRole('button', { name: 'Проекты' }).click();
   await page.getByRole('combobox', { name: 'Усилие' }).waitFor();

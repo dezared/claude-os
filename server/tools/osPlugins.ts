@@ -8,7 +8,10 @@ import type { Ctx } from '../context.ts';
 import { backupFile, httpError, safely, sha256, unifiedDiff } from '../memory/util.ts';
 import type { Approvals } from './approvals.ts';
 import { publicServer, type createMcp } from './mcp.ts';
-import { MANIFEST, NAME, fence, isObj, isUiFile, text, treeHash, validateManifest, walk, type DependencySpec, type HookSpec, type Manifest, type Obj, type ServerSpec, type UiSpec } from './osPluginManifest.ts';
+import { MANIFEST, NAME, cutBlock, findBlock, isObj, isUiFile, text, treeHash, validateManifest, walk, type DependencySpec, type HookSpec, type Manifest, type Obj, type ServerSpec, type UiSpec } from './osPluginManifest.ts';
+import { pluginDataDir, withPluginData } from './osPluginData.ts';
+import { movedFailures } from './osPluginDefaults.ts';
+import { serverProblem, serversOf } from './osPluginServers.ts';
 import { renderLibraryIcon } from './projectIcons.ts';
 import { maskValue, readObject } from './setup.ts';
 import type { createSkills } from './skills.ts';
@@ -31,23 +34,16 @@ interface Installed {
   settingsCreated: boolean;
   ui?: UiSpec | null; // absent in what older versions enabled
   kit?: string | null;
+  server?: string | null;
 }
 
-/** Where the block sits in a file, wherever Claude put it. */
-function findBlock(file: string, plugin: string, dep: string): { from: number; to: number; text: string } | null {
-  const [start, end] = fence(plugin, dep);
-  const from = file.indexOf(start);
-  const close = from < 0 ? -1 : file.indexOf(end, from);
-  return close < 0 ? null : { from, to: close + end.length, text: file.slice(from, close + end.length) };
+const folders = (base: string) => safely(() => readdirSync(base), []).filter((n) => !n.startsWith('.'));
+// State is keyed by id and the tree hash ignores where the folder is, so a plugin can move between the two places.
+function pluginFoldersIn(dir: string, shippedDir: string): { id: string; dir: string; source: 'shipped' | 'user' }[] {
+  const user = folders(dir).map((id) => ({ id, dir: join(dir, id), source: 'user' as const }));
+  const shipped = folders(shippedDir).filter((id) => !user.some((u) => u.id === id)).map((id) => ({ id, dir: join(shippedDir, id), source: 'shipped' as const }));
+  return [...user, ...shipped];
 }
-
-function cutBlock(file: string, at: { from: number; to: number }): string {
-  const before = file.slice(0, at.from).trimEnd();
-  const after = file.slice(at.to).trimStart();
-  const joined = before && after ? `${before}\n\n${after}` : before || after;
-  return joined && !joined.endsWith('\n') ? `${joined}\n` : joined;
-}
-
 
 const contentsOf = (m: Manifest): OsPluginContents => ({
   skills: m.skills,
@@ -58,6 +54,7 @@ const contentsOf = (m: Manifest): OsPluginContents => ({
   }),
   ui: m.ui,
   kit: m.kit,
+  server: m.server,
 });
 type BarePlan = Omit<OsPluginPlan, 'dependencies' | 'setup'>;
 const uiDetail = (ui: UiSpec) => `${ui.entry}${ui.permissions.length ? `; ${ui.permissions.join(', ')}` : ''}`;
@@ -96,20 +93,14 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
     writeFileSync(stateFile, pretty(state), { mode: 0o600 });
   }
 
-  const folders = (base: string) => safely(() => readdirSync(base), []).filter((n) => !n.startsWith('.'));
-  // State is keyed by id and the tree hash ignores where the folder is, so a plugin can move between the two places.
-  function pluginFolders(): { id: string; dir: string; source: 'shipped' | 'user' }[] {
-    const user = folders(dir).map((id) => ({ id, dir: join(dir, id), source: 'user' as const }));
-    const shipped = folders(shippedDir).filter((id) => !user.some((u) => u.id === id)).map((id) => ({ id, dir: join(shippedDir, id), source: 'shipped' as const }));
-    return [...user, ...shipped];
-  }
+  const pluginFolders = () => pluginFoldersIn(dir, shippedDir);
   const folderOf = (id: string) => pluginFolders().find((f) => f.id === id) ?? { id, dir: join(dir, id), source: 'user' as const };
-  const empty: OsPluginContents = { skills: [], hooks: [], mcp: [], ui: null, kit: null };
+  const empty: OsPluginContents = { skills: [], hooks: [], mcp: [], ui: null, kit: null, server: null };
 
   const targetOf = (d: DependencySpec, plugin: string) => {
     if (d.kind === 'config') return claudeMd;
     if (d.kind !== 'download') return d.target;
-    return d.target.replace('{claudeDir}', ctx.paths.claudeDir).replace('{pluginData}', join(ctx.paths.data, 'os-plugin-data', plugin));
+    return d.target.replace('{claudeDir}', ctx.paths.claudeDir).replace('{pluginData}', pluginDataDir(ctx, plugin));
   };
 
   // Only looks. An address is asked only on this machine: a listed plugin gets no way to call out through the server.
@@ -148,7 +139,7 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
     return Promise.all(m.dependencies.map(async ({ task: _task, ...d }) => ({ ...d, target: targetOf({ ...d, task: null }, m.id), state: await stateOf({ ...d, task: null }, m.id) })));
   }
 
-  async function row({ id, dir: path, source }: { id: string; dir: string; source: OsPluginRow['source'] }, installed: Installed | undefined): Promise<OsPluginRow> {
+  async function row({ id, dir: path, source }: { id: string; dir: string; source: OsPluginRow['source'] }, installed: Installed | undefined): Promise<Omit<OsPluginRow, 'autoEnableFailed' | 'serverStatus'>> {
     const { manifest, errors, raw } = validateManifest(id, path);
     const dependencies = manifest ? await dependenciesOf(manifest) : [];
     return {
@@ -166,7 +157,7 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
       contains: manifest ? contentsOf(manifest) : empty,
       dependencies,
       setup: manifest ? setupOf(manifest, path, dependencies) : null,
-      errors,
+      errors: [...errors, ...serverProblem(manifest, source)],
       enabled: !!installed,
       installedVersion: installed?.version ?? null,
       installedAt: installed?.at ?? null,
@@ -177,10 +168,10 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
   async function list(): Promise<OsPluginsReport> {
     const state = readState();
     const found = pluginFolders();
-    const rows = await Promise.all(found.map((f) => row(f, state[f.id])));
+    const rows: OsPluginRow[] = await Promise.all(found.map(async (f) => ({ ...(await row(f, state[f.id])), autoEnableFailed: state[f.id] ? null : movedFailures(ctx.paths.data)[f.id] ?? null, serverStatus: ctx.pluginServers?.status(f.id) ?? null })));
     // The folder went away but what it installed did not: it still has to be possible to disable it.
     for (const [id, installed] of Object.entries(state)) {
-      if (!found.some((f) => f.id === id)) rows.push({ ...(await row(folderOf(id), installed)), errors: ['the plugin folder is gone'], changed: false });
+      if (!found.some((f) => f.id === id)) rows.push({ ...(await row(folderOf(id), installed)), errors: ['the plugin folder is gone'], changed: false, autoEnableFailed: null, serverStatus: null });
     }
     return { dir, rows: rows.sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name)) };
   }
@@ -189,8 +180,9 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
     if (!NAME.test(id)) throw httpError(400, 'bad plugin id');
     const folder = folderOf(id).dir;
     if (!existsSync(folder)) throw httpError(404, 'plugin not found');
-    const { manifest, errors } = validateManifest(id, folder);
-    if (!manifest) throw httpError(422, errors.join('; '));
+    const { manifest: read, errors } = validateManifest(id, folder);
+    if (!read) throw httpError(422, errors.join('; '));
+    const manifest = { ...read, hooks: withPluginData(read.hooks, pluginDataDir(ctx, id)), mcp: withPluginData(read.mcp, pluginDataDir(ctx, id)) };
     const changes: OsPluginChange[] = [];
     const conflicts: string[] = [];
     const leaving = replacing ? classify(replacing, id) : [];
@@ -216,9 +208,11 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
     }
     if (manifest.ui) changes.push({ kind: 'ui', action: 'add', name: manifest.name, where: join(folder, manifest.ui.entry), detail: uiDetail(manifest.ui) });
     // A kit writes nothing on enabling: it only makes the project kit actions available.
+    conflicts.push(...serverProblem(manifest, folderOf(id).source));
+    if (manifest.server) changes.push({ kind: 'server', action: 'add', name: manifest.name, where: join(folder, manifest.server), detail: 'routes, claude-os tools, a prompt rule' });
     if (manifest.kit) changes.push({ kind: 'kit', action: 'add', name: manifest.name, where: folder, detail: 'project kit actions' });
     // On an update what stays is named once, as what comes in; the interface part is only a pointer, nothing leaves with it.
-    const gone = leaving.filter((c) => c.kind !== 'ui' && c.action === 'remove' && !changes.some((n) => n.kind === c.kind && n.name === c.name));
+    const gone = leaving.filter((c) => c.kind !== 'ui' && c.kind !== 'server' && c.action === 'remove' && !changes.some((n) => n.kind === c.kind && n.name === c.name));
     const shown = [...gone, ...changes];
     return { id, action: replacing ? 'update' : 'enable', version: manifest.version, changes: shown, conflicts, sha: sha256(JSON.stringify({ changes: shown, tree: treeHash(folder), update: !!replacing })), manifest, folder };
   }
@@ -240,19 +234,20 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
     for (const m of installed.mcp) {
       out.push({ kind: 'mcp', action: !(m.name in users) ? 'gone' : same(serverCore(users[m.name]), serverCore(m.config)) ? 'remove' : 'keep', name: m.name, where: `${ctx.paths.claudeJson} (mcpServers)`, detail: serverDetail(m.name, m.config) });
     }
+    if (installed.server) out.push({ kind: 'server', action: 'remove', name: installed.server, where: folderOf(id).dir, detail: '' });
     if (installed.ui) out.push({ kind: 'ui', action: 'remove', name: installed.ui.entry, where: folderOf(id).dir, detail: uiDetail(installed.ui) });
     return out;
   }
 
-  // What was reviewed is what runs: a folder changed after enabling stops counting until it is enabled again.
-  const activeUi = () => Object.entries(readState()).flatMap(([id, installed]) => (
-    installed.ui && treeHash(folderOf(id).dir) === installed.tree ? [{ id, tree: installed.tree, ui: installed.ui }] : []
+  // An enabled plugin runs its current code (current tree in the URL) with the entry and permissions of its current manifest: plugins are the owner's own until there is a marketplace.
+  const activeUi = () => Object.entries(readState()).flatMap(([id, { ui }]) => (ui ? [{ id, tree: treeHash(folderOf(id).dir) ?? '', ui: validateManifest(id, folderOf(id).dir).manifest?.ui ?? ui }] : [])).filter((p) => p.tree);
+  const allows = (permission: OsPluginPermission, id?: string) => activeUi().some((p) => (!id || p.id === id) && p.ui.permissions.includes(permission));
+  // The same rule for a kit: it runs while its folder exists; `dir` is the folder of its templates.
+  const activeKits = (): { id: string; dir: string; version: string }[] => Object.entries(readState()).flatMap(([id, installed]) => (
+    installed.kit && treeHash(folderOf(id).dir) ? [{ id, dir: join(folderOf(id).dir, installed.kit), version: installed.version }] : []
   ));
-  const allows = (permission: OsPluginPermission) => activeUi().some((p) => p.ui.permissions.includes(permission));
-  // The same rule for a kit; `dir` is the folder of its templates.
-  const activeKit = (): { id: string; dir: string; version: string } | null => Object.entries(readState()).flatMap(([id, installed]) => (
-    installed.kit && treeHash(folderOf(id).dir) === installed.tree ? [{ id, dir: join(folderOf(id).dir, installed.kit), version: installed.version }] : []
-  ))[0] ?? null;
+  // Like the interface: an enabled plugin runs the server part its current manifest names, with no update needed.
+  const activeServers = () => serversOf(Object.fromEntries(Object.entries(readState()).map(([id, p]) => [id, { server: validateManifest(id, folderOf(id).dir).manifest?.server ?? p.server }])), folderOf);
   function uiList(): OsPluginUi[] {
     return activeUi().map((p) => ({
       id: p.id,
@@ -377,7 +372,7 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
 
   async function install(plan: ReturnType<typeof planEnable>): Promise<OsPluginsReport> {
     const { id, manifest, folder } = plan;
-    const done: Installed = { version: manifest.version, at: Date.now(), tree: treeHash(folder)!, skills: [], hooks: [], mcp: [], settingsCreated: !existsSync(settingsFile), ui: manifest.ui, kit: manifest.kit };
+    const done: Installed = { version: manifest.version, at: Date.now(), tree: treeHash(folder)!, skills: [], hooks: [], mcp: [], settingsCreated: !existsSync(settingsFile), ui: manifest.ui, kit: manifest.kit, server: manifest.server };
     try {
       for (const name of manifest.skills) {
         const source = join(folder, 'skills', name);
@@ -403,6 +398,7 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
     for (const h of manifest.hooks) approvals.approve(h.command, `os-plugin:${id}`);
     for (const config of Object.values(manifest.mcp)) if (config.command) approvals.approve([config.command, ...(config.args ?? []).map(String)].join(' '), `os-plugin:${id}`);
     writeState({ ...readState(), [id]: done });
+    ctx.bus.emit('os-plugins-changed');
     ctx.audit(`os-plugin.${plan.action}`, id, plan.changes.map((c) => `${c.action === 'add' ? '+' : '-'} ${c.kind} ${c.name} -> ${c.where}`).join('\n'));
     ctx.invalidate('osPlugins', 'skills', 'mcp', 'overview');
     return list();
@@ -415,6 +411,7 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
     removeBlocks(id);
     const { [id]: _gone, ...rest } = readState();
     writeState(rest);
+    ctx.bus.emit('os-plugins-changed');
     ctx.audit('os-plugin.disable', id, plan.changes.map((c) => `${c.action} ${c.kind} ${c.name} (${c.where})`).join('\n'));
     ctx.invalidate('osPlugins', 'skills', 'mcp', 'overview');
     return list();
@@ -443,5 +440,5 @@ export function createOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills
   ctx.app.post<ConfirmReq>('/api/os-plugins/:id/enable', async (req) => enable(req.params.id, req.body));
   ctx.app.post<ConfirmReq>('/api/os-plugins/:id/disable', async (req) => disable(req.params.id, req.body));
   ctx.app.post<ConfirmReq>('/api/os-plugins/:id/update', async (req) => update(req.params.id, req.body));
-  return { allows, activeKit };
+  return { allows, activeKits, activeServers, installer: { stateFile, folders: pluginFolders, plan: (id: string) => planEnable(id), install } };
 }

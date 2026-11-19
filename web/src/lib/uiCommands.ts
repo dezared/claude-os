@@ -4,7 +4,7 @@ import { peekCached } from './api';
 import { t } from './i18n';
 import { useApp, type View } from './store';
 import { tabTitle } from './tabTitle';
-import { assertNever } from '../../../shared/contract.ts';
+import { assertNever, UI_VIEW_SET, type UiView } from '../../../shared/contract.ts';
 import type { Tab, UiCommand } from './types';
 
 const viewOfTab = (tab: Tab | undefined, tabId: string): View => (tab?.kind === 'root' ? { kind: 'home' } : { kind: 'tab', id: tabId });
@@ -24,13 +24,16 @@ function notify(tabId: string, kind: 'done' | 'question', text: string | null) {
   app.toast(title ? `${title}: ${body}` : body, 'info', { label: t('ui.openTab'), onClick: () => useApp.getState().go(place) });
 }
 
+const isCoreView = (view: string): view is Exclude<UiView, 'planner' | 'projects' | 'sessions'> => view in UI_VIEW_SET;
+
 function open(view: Extract<UiCommand, { action: 'open' }>['view'], project: string | null) {
   const app = useApp.getState();
   if (view === 'planner') return app.openPlanner();
   if (view === 'projects') return app.go({ kind: 'projects', key: project ?? undefined });
   if (view === 'sessions') return app.go({ kind: 'sessions', project });
-  if (view === 'kanban') return app.go({ kind: 'kanban', board: project ?? undefined });
-  app.go({ kind: view });
+  if (isCoreView(view)) return app.go({ kind: view });
+  // A plugin's screen, which its server part named: it opens on the project, when one is given.
+  app.go({ kind: 'plugin', screen: view, ...(project ? { arg: project } : {}) });
 }
 
 export function runUiCommand(tabId: string, command: UiCommand) {

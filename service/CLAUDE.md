@@ -13,7 +13,7 @@ For example, filing a planner note: split the text into items, give it a clear t
 
 ## A task from the user
 
-Starts with the words "A task from the user". A question, a small change, a widget, notes, kanban cards. The user reads your last text in a small card: short and to the point.
+Starts with the words "A task from the user". A question, a small change, a widget, notes, board cards. The user reads your last text in a small card: short and to the point.
 
 First judge the size:
 
@@ -23,6 +23,6 @@ First judge the size:
 
 Rules:
 
-- Widgets, settings, icons, plugins, kanban: read `../root/reference/<topic>.md` first.
+- Read first: `../root/reference/<topic>.md` (widgets, settings, icons, plugins), `../plugins/kanban-plus/reference.md` (cards).
 - Write only in `../config`, and planner notes only with the planner tools. Anything else (the core, Claude's settings, other projects, shell commands) goes through a tab, where the user sees the permission requests.
 - Project data: `update_project`; the map: `set_project_map`.

@@ -404,9 +404,12 @@ test('apps watcher: parses lists, asks for each icon once, stays quiet on failur
 async function startMain(userData: string, platform: string) {
   class Win extends EventEmitter {
     full = false;
-    webContents = Object.assign(new EventEmitter(), { send() {}, getURL: () => 'http://127.0.0.1:47999/', setWindowOpenHandler() {} });
+    scripts: string[] = [];
+    webContents = Object.assign(new EventEmitter(), { send() {}, getURL: () => 'http://127.0.0.1:47999/', setWindowOpenHandler() {}, executeJavaScript: (js: string) => { this.scripts.push(js); return Promise.resolve(); } });
+    boot = '';
     loaded = false;
     loadURL(url: string) {
+      if (url.startsWith('data:') && !this.boot) this.boot = decodeURIComponent(url.slice(url.indexOf(',') + 1));
       this.loaded = url.startsWith('http://127.0.0.1:47999');
       return Promise.resolve();
     }
@@ -431,9 +434,12 @@ async function startMain(userData: string, platform: string) {
     session: { defaultSession: { setPermissionRequestHandler() {} } },
     Tray: class extends EventEmitter { setToolTip() {} setContextMenu() {} },
   };
+  const wsl: EventEmitter[] = [];
   const spawn = (cmd: string) => {
     const child = Object.assign(new EventEmitter(), { stdout: Object.assign(new EventEmitter(), { setEncoding() {} }), stderr: new EventEmitter(), kill() {} });
-    if (cmd === 'wsl.exe') setImmediate(() => child.stdout.emit('data', 'READY http://127.0.0.1:47999/auth?token=x\n'));
+    if (cmd === 'wsl.exe') wsl.push(child);
+    // serve.mjs reports its stages before the URL, the same way: one line each.
+    if (cmd === 'wsl.exe') setImmediate(() => child.stdout.emit('data', 'STAGE check\nSTAGE spawn\nREADY http://127.0.0.1:47999/auth?token=x\n'));
     return child;
   };
   type Loader = { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
@@ -455,6 +461,7 @@ async function startMain(userData: string, platform: string) {
     win.emit('ready-to-show');
     return {
       win,
+      wsl,
       toggle: (on: boolean) => ipc['fullscreen-set']({ sender: win.webContents, senderFrame: { url: 'http://127.0.0.1:47999/' } }, on),
       close: () => { electron.app.emit('before-quit'); win.emit('close', { preventDefault() {} }); },
     };
@@ -464,6 +471,41 @@ async function startMain(userData: string, platform: string) {
     delete require.cache[mainPath];
   }
 }
+
+test('start screen: the boot stages from serve.mjs show one by one, the current one last, with a timer', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'claude-os-desktop-'));
+  try {
+    const { win } = await startMain(userData, 'win32');
+    assert.deepEqual(win.scripts.map((js) => /stage\("(\w+)"\)/.exec(js)?.[1]), ['check', 'spawn', 'open'], 'in the order they came, the panel last');
+    const shot = await browser.newPage({ viewport: { width: 640, height: 400 }, reducedMotion: 'no-preference' });
+    await shot.setContent(win.boot);
+    for (const js of win.scripts) await shot.evaluate(js);
+    const rows = shot.locator('li');
+    assert.deepEqual(await rows.allInnerTexts(), ['Поднимаю WSL', 'Ищу запущенный сервер', 'Запускаю сервер', 'Открываю панель']);
+    assert.deepEqual(await rows.evaluateAll((els) => els.map((e) => e.className)), ['done', 'done', 'done', 'now']);
+    assert.notEqual(await shot.locator('li.now span').evaluate((e) => getComputedStyle(e).animationName), 'none', 'the current stage shimmers');
+    await shot.getByText(/Первый запуск занимает несколько секунд\. 0:0\d/).waitFor();
+    await shot.screenshot({ path: '/tmp/cos-desktop-boot.png' });
+    await shot.close();
+  } finally {
+    rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('a WSL that dies under the window is started again, with the start screen meanwhile', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'claude-os-desktop-'));
+  try {
+    const { win, wsl } = await startMain(userData, 'win32');
+    assert.equal(wsl.length, 1);
+    win.boot = '';
+    wsl[0].emit('exit', 1); // the VM went down and took serve.mjs and its wsl.exe with it
+    await waitUntil(() => wsl.length === 2, 'a second wsl.exe');
+    assert.match(win.boot, /Запускаю Claude OS/, 'the start screen shows while it comes back');
+    await waitUntil(() => win.loaded, 'the panel loads again');
+  } finally {
+    rmSync(userData, { recursive: true, force: true });
+  }
+});
 
 test('main process: full screen by default on Windows, until the user leaves it himself', async () => {
   const userData = mkdtempSync(join(tmpdir(), 'claude-os-desktop-'));
@@ -528,6 +570,7 @@ test('main process against a fake electron: close, tray, notifications, full scr
       send: (c: string, v: unknown) => void this.sent.push([c, v]),
       getURL: () => this.url,
       setWindowOpenHandler() {},
+      executeJavaScript: () => Promise.resolve(),
     });
     options: { webPreferences: { preload: string } };
     constructor(options: { webPreferences: { preload: string } }) {

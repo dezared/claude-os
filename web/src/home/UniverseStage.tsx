@@ -1,29 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { openContextMenu, useContextMenu } from '@/components/ContextMenu';
 import type { MenuItem } from './ActionMenu';
+import { NoteTip } from './NoteTip';
 import { useApi, type Query } from '@/lib/api';
 import { cn, fmtInt } from '@/lib/format';
 import { t, tn } from '@/lib/i18n';
 import { useApp } from '@/lib/store';
-import type { MemoryGraph, MemoryNode, Project, ProjectIcons, SettingsView, UniverseOptions } from '@/lib/types';
+import type { MemoryMap, MemoryNode, Project, ProjectIcons, SettingsView, UniverseOptions } from '@/lib/types';
 import { chosenColors, skyColors } from './universe/colors';
 import { coreMenu } from './universe/menu';
 import type { OrbitSession } from './universe/orbits';
 import { DEFAULT_MAP_LIMIT, projectParents } from './universe/selection';
 import { Universe } from './universe/Universe';
-
-function Tip({ node, projectName }: { node: MemoryNode; projectName: (key: string | null) => string }) {
-  return (
-    <>
-      <b className="block font-medium wrap-anywhere text-fg">{node.title}</b>
-      {node.summary && <span className="mt-0.5 block text-[12px] leading-snug wrap-anywhere text-soft">{node.summary}</span>}
-      <small className="mt-1 block text-[11px] text-muted">
-        {projectName(node.project)} · {fmtInt(node.degree)} {tn('unit.link', node.degree)}
-        {!node.connected && ` · ${t('universe.readOnly')}`}
-      </small>
-    </>
-  );
-}
 
 const DEFAULT_UNIVERSE: UniverseOptions = { limit: DEFAULT_MAP_LIMIT, theme: 'default', colors: {}, crossLinks: false, nesting: false };
 
@@ -44,7 +32,7 @@ export function UniverseStage({
   widgetMenu,
 }: {
   visible: boolean;
-  graph: Query<MemoryGraph>;
+  graph: Query<MemoryMap>;
   highlight: Set<string> | null;
   orbit: string | null | undefined;
   live: Map<string, OrbitSession[]>;
@@ -139,11 +127,11 @@ export function UniverseStage({
   useEffect(() => universe.current?.setSelected(noteId), [noteId, universe]);
   useEffect(() => universe.current?.setHighlight(highlight), [highlight, universe]);
 
-  const count = graph.data?.nodes.length ?? 0;
-  // The card belongs to the star, not to the pointer: the map places it from here on, every frame, without React.
+  const count = graph.data?.total ?? 0;
+  // The card belongs to the star, not to the pointer: the map places it from here on, every frame, without React. Before the paint, or it shows in the window's corner.
   const tipRef = useRef<HTMLDivElement>(null);
   const tipOn = hover && visible ? hover.id : null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     universe.current?.anchorTip(tipRef.current);
     return () => universe.current?.anchorTip(null);
   }, [tipOn, universe]);
@@ -166,7 +154,7 @@ export function UniverseStage({
       <div ref={labelsRef} className={cn('u-labels', !visible && 'hidden')} />
       {hover && visible && (
         <div ref={tipRef} aria-live="polite" role="tooltip" className="u-tip">
-          <Tip node={hover} projectName={projectName} />
+          <NoteTip node={hover} graph={mapGraph} projectName={projectName} />
         </div>
       )}
     </div>

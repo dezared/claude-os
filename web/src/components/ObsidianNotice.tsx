@@ -51,7 +51,7 @@ export function ObsidianNotice() {
   };
 
   return (
-    <aside aria-label={t('obsidian.aria')} style={{ pointerEvents: 'auto' }} className="enter-fade flex-none border-b border-line2 bg-[#121216] px-4 py-1 text-xs">
+    <aside aria-label={t('obsidian.aria')} style={{ pointerEvents: 'auto' }} className="enter-fade flex-none border-b border-line2 bg-panel px-4 py-1 text-xs">
       <div className="flex items-center gap-3">
         <BookOpen size={13} className="flex-none text-dim" />
         <span className="flex-none text-soft">{t('obsidian.title')}</span>
@@ -59,7 +59,7 @@ export function ObsidianNotice() {
           {t('obsidian.detail')}<ChevronDown size={11} className={detail ? 'rotate-180' : ''} />
         </button>
         <span className="ml-auto flex flex-none items-center gap-2">
-          <a href={OBSIDIAN_DOWNLOAD} target="_blank" rel="noreferrer" className="press inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-soft no-underline hover:border-white/20 hover:text-fg">
+          <a href={OBSIDIAN_DOWNLOAD} target="_blank" rel="noreferrer" className="press inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-soft no-underline hover:border-fg/20 hover:text-fg">
             <ExternalLink size={11} />{t('obsidian.download')}
           </a>
           <Button size="sm" title={spendNote()} onClick={() => runMicrotask({ id: 'obsidian-install', vars: { vault } })}>

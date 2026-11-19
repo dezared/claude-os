@@ -65,7 +65,7 @@ Claude Code's auto-memory, kept in one folder (`vault/`) instead of one hidden f
 
 ## Kanban and planner
 
-- **Kanban.** Cards per project in Backlog, Up next, In progress, Polish, Done. Claude can take a card, move it and add notes through its tools; you drag cards with the mouse or the keyboard.
+- **Kanban+.** A shipped plugin, on by default: boards in a sidebar (Epics and Tasks to start with, more built by Claude on request), filters by project, type and assignee, cards in Backlog, Up next, In progress, Polish, Done with a type, priority, assignee, labels, estimate, comments and a log of which session took them and what it spent. Claude can take a card, move it and comment through its tools; you drag cards with the mouse or the keyboard.
 - **Planner.** A side panel for quick notes. The service session files a note: splits it into items, gives it a title and a folder.
 
 ## Documents
@@ -92,7 +92,7 @@ Packages with skills, hooks, MCP servers and interface code, off until you enabl
 
 ## Settings
 
-Language, profile (name, reply language, projects folder, how often Claude asks), home widgets, IDEs and programs found on the machine, projects, the Claude account (plan, limits, version, `claude doctor`), notes and Obsidian, voice input, about.
+Language, profile (name, reply language, how often Claude asks), home widgets, IDEs and programs found on the machine, projects, the Claude account (plan, limits, version, `claude doctor`), notes and Obsidian, voice input, about.
 
 ## Desktop app
 

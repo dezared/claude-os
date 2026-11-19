@@ -1,0 +1,39 @@
+{
+  "id": "learn",
+  "name": "Learn",
+  "description": "Learn any skill with Claude: a roadmap for each topic, lessons as clear HTML articles, a quiz after each lesson, practice in a Claude tab that Claude grades, short videos to watch, progress and a day streak. Open it from the burger menu.",
+  "descriptionRu": "Изучение любого навыка с Claude: дорожная карта по каждой теме, уроки — понятные HTML-статьи, тест после урока, практика во вкладке Claude с оценкой, короткие видео, прогресс и серия дней. Открывается из бургер-меню.",
+  "features": [
+    "Tracks with a roadmap Claude builds and adjusts as you go",
+    "Lessons written by Claude as articles with highlighted code, in the light and dark theme",
+    "A quiz after each lesson; every attempt is kept and a passed quiz marks the step done",
+    "Practice with Claude in the track's work folder, graded by Claude",
+    "Short videos suggested for each lesson",
+    "Courses made and configured by hand too: settings, the roadmap, materials such as a program or a page template",
+    "Exercises a course carries: files with tests and the command that checks them",
+    "A course plugin of yours can be imported as a track"
+  ],
+  "featuresRu": [
+    "Темы с дорожной картой, которую Claude строит и поправляет по ходу",
+    "Уроки от Claude — статьи с подсветкой кода, в светлой и тёмной теме",
+    "Тест после каждого урока; все попытки сохраняются, сданный тест закрывает шаг",
+    "Практика с Claude в рабочей папке темы, с оценкой от Claude",
+    "Короткие видео к каждому уроку",
+    "Курсы можно создавать и настраивать вручную: параметры, дорожная карта, материалы вроде программы или шаблона страницы",
+    "Задания, которые курс хранит в себе: файлы с тестами и команда проверки",
+    "Свой плагин-курс можно импортировать как тему"
+  ],
+  "icon": "graduation-cap",
+  "version": "1.1.0",
+  "author": "Claude OS",
+  "contains": {
+    "skills": ["learn"],
+    "mcp": {
+      "learn": { "command": "node", "args": ["{pluginDir}/mcp/server.mjs"], "env": { "LEARN_DATA": "{pluginData}" } }
+    },
+    "ui": {
+      "entry": "ui/index.js",
+      "permissions": ["data"]
+    }
+  }
+}

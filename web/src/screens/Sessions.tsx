@@ -1,6 +1,7 @@
 import { Bot, ChevronRight, CircleCheck, CircleStop, Ellipsis, ExternalLink, Hourglass, History, List, Moon, Orbit, Radio, SquareTerminal, Trash2, TriangleAlert, Wrench, Zap, type LucideIcon } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useContextMenu } from '@/components/ContextMenu';
+import { Fold } from '@/components/Motion';
 import { SubagentStrip } from '@/work/SubagentStrip';
 import { SubagentDialog } from '@/work/SubagentView';
 import { ProjectIcon } from '@/components/ProjectIcon';
@@ -10,6 +11,7 @@ import { Button, Dialog, IconButton, Segmented } from '@/components/ui';
 import { ActionMenu, type MenuItem } from '@/home/ActionMenu';
 import { fmtSize } from '@/home/RemoveProjectDialog';
 import { api, useApi } from '@/lib/api';
+import { useFlip } from '@/lib/flip';
 import { cn, fmtAgo, fmtInt, fmtTokens, isLive, shortPath, statusLabel, tokenSum } from '@/lib/format';
 import { t, tn } from '@/lib/i18n';
 import { askClaude } from '@/lib/microtask';
@@ -125,7 +127,7 @@ function DeleteDialog({ s, tabs, onClose }: { s: SessionInfo; tabs: Tab[]; onClo
         {(p) => (
           <div className="flex flex-col gap-3 text-[13px]">
             <div className="flex items-start gap-2 rounded-lg border border-[#c2410c]/60 bg-[#c2410c]/10 p-3 text-soft">
-              <TriangleAlert size={15} className="mt-0.5 flex-none text-[#f97316]" />
+              <TriangleAlert size={15} className="mt-0.5 flex-none text-c-orange" />
               <p className="wrap-anywhere">{t('sessions.deleteLead', { title: titleOf(s) })}</p>
             </div>
             {p.items.length === 0 ? (
@@ -133,7 +135,7 @@ function DeleteDialog({ s, tabs, onClose }: { s: SessionInfo; tabs: Tab[]; onClo
             ) : (
               <ul className="flex flex-col gap-2">
                 {p.items.map((i) => (
-                  <li key={i.path} className="rounded-lg bg-white/[.035] px-3 py-2">
+                  <li key={i.path} className="rounded-lg bg-fg/[.035] px-3 py-2">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-soft">{t(i.kind === 'journal' ? 'sessions.deleteKind.journal' : 'sessions.deleteKind.attachments')}</span>
                       <span className="flex-none text-xs text-muted">{t('remove.files', { n: fmtInt(i.files) })} · {fmtSize(i.bytes)}</span>
@@ -148,7 +150,7 @@ function DeleteDialog({ s, tabs, onClose }: { s: SessionInfo; tabs: Tab[]; onClo
               <li>{t('sessions.deleteUsage')}</li>
               <li className="wrap-anywhere">{t('sessions.deleteTrash', { path: p.trash })}</li>
             </ul>
-            {(p.live || p.root) && <p role="alert" className="text-[#f97316]">{t(p.root ? 'sessions.deleteRoot' : 'sessions.deleteLive')}</p>}
+            {(p.live || p.root) && <p role="alert" className="text-c-orange">{t(p.root ? 'sessions.deleteRoot' : 'sessions.deleteLive')}</p>}
             <div className="flex justify-end gap-2">
               <Button onClick={onClose}>{t('common.cancel')}</Button>
               <Button variant="danger" disabled={busy || p.live || p.root} onClick={remove}><Trash2 size={13} /> {t('sessions.delete')}</Button>
@@ -185,8 +187,8 @@ function Row({ s, projects, repo, tabs, color, maxTokens, where, agentsNow, acti
   const items = sessionItems(s, tabs, actions);
   const menuArea = useContextMenu(items);
   return (
-    <div ref={menuArea} className={cn('border-b border-line2', sessionStripe(s, repoProject))}>
-      <div className="group flex items-center transition-colors duration-100 hover:bg-white/[.045]">
+    <div ref={menuArea} data-flip={s.id} className={cn('border-b border-line2', sessionStripe(s, repoProject))}>
+      <div className="group flex items-center transition-colors duration-100 hover:bg-fg/[.045]">
         <button
           type="button"
           aria-expanded={s.subagents.length > 0 ? open : undefined}
@@ -238,8 +240,7 @@ function Row({ s, projects, repo, tabs, color, maxTokens, where, agentsNow, acti
         <RowMenu title={title} items={items} />
       </div>
       {watching && <SubagentStrip sessionId={s.id} className="mr-[52px] mb-2 ml-8" />}
-      {open && (
-        <div className="enter-fade pb-2 pl-8">
+      <Fold show={open} className="pb-2 pl-8">
           {s.subagents.map((a) => (
             <div key={a.id} className="grid grid-cols-[14px_minmax(0,1fr)_64px_70px] items-center gap-3 py-1 pr-5 text-xs">
               <Bot size={12} className="text-dim" />
@@ -251,8 +252,7 @@ function Row({ s, projects, repo, tabs, color, maxTokens, where, agentsNow, acti
               <span className="text-right text-dim">{fmtAgo(a.lastActivity)}</span>
             </div>
           ))}
-        </div>
-      )}
+      </Fold>
     </div>
   );
 }
@@ -268,6 +268,8 @@ export function SessionsView({ project: initialProject }: { project: string | nu
   const [limit, setLimit] = useState(PAGE);
   const [stopping, setStopping] = useState<SessionInfo | null>(null);
   const [deleting, setDeleting] = useState<SessionInfo | null>(null);
+  const rows = useRef<HTMLDivElement>(null);
+  useFlip(rows); // a session that starts, ends or moves up: its row slides, enters or fades out
   const agentsNow = useApi<Record<string, number>>('/api/sessions/active-subagents', ['sessions']);
   const status = useApi<AppStatus>('/api/app/status');
   const anyAgents = Object.keys(agentsNow.data ?? {}).length > 0;
@@ -345,7 +347,7 @@ export function SessionsView({ project: initialProject }: { project: string | nu
           }
         >
           {() => (
-            <div className="min-w-[860px]">
+            <div ref={rows} className="relative min-w-[860px]">
               <div className="sheet-bar sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_180px_120px_92px_84px_70px] gap-3 border-b border-line2 py-1.5 pr-[96px] pl-8 text-[11px] text-dim">
                 <span>{t('sessions.colSession')}</span>
                 <span>{t('sessions.colProject')}</span>

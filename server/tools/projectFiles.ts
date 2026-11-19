@@ -1,15 +1,18 @@
-// The file tree and code view of a work tab. Everything is a path relative to the tab's cwd, and stays inside it.
+// The file tree and code view of a work tab. Paths are relative to the tab's cwd and stay inside it; the tree may also list
+// from a folder above or beside it that the tab can read.
 // Read-only unless an enabled Claude OS plugin holds the permission to write or to open the file manager.
 import { closeSync, createReadStream, existsSync, lstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative, sep } from 'node:path';
-import type { FileEntry, OsPluginPermission, ProjectFile } from '../../shared/contract.ts';
+import { isAbsolute, join, normalize, posix, relative, resolve, sep, win32, type PlatformPath } from 'node:path';
+import type { OsPluginPermission } from '../../shared/contract.ts';
+import type { FileEntry, FileRoot, ProjectFile } from '../../shared/files.ts';
+import type { FastifyReply } from 'fastify';
 import type { Ctx } from '../context.ts';
-import { gitFiles, SKIP_DIRS } from '../chat/files.ts';
-import { kanbanDir } from './kanban.ts';
+import { gitFiles, SKIP_DIRS, walk } from '../chat/files.ts';
 import { plannerDir } from './planner.ts';
 import { httpError, safely, sha256 } from '../memory/util.ts';
 import { launch } from './actions.ts';
+import { readSheet } from './projectSheet.ts';
 import { validateRepoPath } from './git.ts';
 import { platformKind, revealArgv } from './platform.ts';
 
@@ -58,6 +61,38 @@ export async function listDir(cwd: string, rel?: string): Promise<FileEntry[]> {
   return out.sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name));
 }
 
+/**
+ * A folder the files panel may list from: the cwd, a readable root, or a folder inside one. Paths stay as given, so the
+ * panel's paths match what `locate` resolves; realpath only checks that a symlink does not lead out.
+ */
+export function treeRoot(cwd: string, roots: string[], dir: unknown): FileRoot {
+  if (dir !== undefined && dir !== '' && (typeof dir !== 'string' || !isAbsolute(dir))) throw httpError(400, 'root must be an absolute path');
+  const path = typeof dir === 'string' && dir ? resolve(dir) : cwd;
+  const within = (inner: string, outer: string) => inner === outer || inner.startsWith(outer + sep);
+  // The cwd itself is what the tree always listed, even before the folder exists.
+  const real = path === cwd ? null : safely(() => realpathSync(path), null);
+  if (path !== cwd && !real) throw httpError(404, 'no such folder');
+  if (real && !statSync(real).isDirectory()) throw httpError(400, 'not a folder');
+  const owners = [cwd, ...roots].filter((r) => within(path, r) && (!real || within(real, safely(() => realpathSync(r), r))));
+  if (owners.length === 0) throw httpError(403, 'outside the project');
+  const top = owners.reduce((a, b) => (b.length < a.length ? b : a));
+  return { path, cwd, top, ...rootCrumbs(path, top, homedir()) };
+}
+
+/** The way up and a crumb per folder, `~` for the home folder, in the server's own separators: the panel splits no path. */
+export function rootCrumbs(path: string, top: string, home: string, p: PlatformPath = sep === '\\' ? win32 : posix): Pick<FileRoot, 'parent' | 'crumbs'> {
+  const within = (inner: string, outer: string) => inner === outer || inner.startsWith(outer.endsWith(p.sep) ? outer : outer + p.sep);
+  const drive = p.parse(path).root;
+  const start = home !== drive && within(path, home) ? { name: '~', path: home } : { name: drive, path: drive };
+  const crumbs = [{ ...start, reach: within(start.path, top) }];
+  let at = start.path;
+  for (const name of path.slice(start.path.length).split(p.sep).filter(Boolean)) {
+    at = p.join(at, name);
+    crumbs.push({ name, path: at, reach: within(at, top) });
+  }
+  return { parent: path === top ? null : p.dirname(path), crumbs };
+}
+
 export function readProjectFile(cwd: string, rel: unknown): ProjectFile {
   const path = validateRepoPath(rel);
   const real = resolveInside(cwd, path);
@@ -104,26 +139,28 @@ export function imageType(head: Buffer): string | null {
   if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp';
   if (ascii(4, 8) === 'ftyp' && ascii(8, 12).startsWith('avi')) return 'image/avif';
   if (ascii(0, 2) === 'BM') return 'image/bmp';
+  if (head[0] === 0 && head[1] === 0 && head[2] === 1 && head[3] === 0) return 'image/x-icon';
   return null;
 }
 
-export function readProjectImage(cwd: string, rel: unknown): { type: string; bytes: Buffer } {
-  const real = resolveInside(cwd, rel);
+function readWhole(real: string, max: number): Buffer {
   const stat = statSync(real);
   if (!stat.isFile()) throw httpError(400, 'not a file');
-  if (stat.size > MAX_IMAGE_BYTES) throw httpError(413, 'image too large');
-  const bytes = readFileSync(real);
+  if (stat.size > max) throw httpError(413, 'file too large');
+  return readFileSync(real);
+}
+
+export function readProjectImage(cwd: string, rel: unknown): { type: string; bytes: Buffer } {
+  const bytes = readWhole(resolveInside(cwd, rel), MAX_IMAGE_BYTES);
   const type = imageType(bytes.subarray(0, 16));
   if (!type) throw httpError(415, 'not an image');
   return { type, bytes };
 }
 
-/** The same rule for sound and video: the bytes decide, so a player can only ever be handed what it plays. */
-export function mediaType(head: Buffer): string | null {
+function playableType(head: Buffer): string | null {
   const ascii = (from: number, to: number) => head.toString('latin1', from, to);
   const image = imageType(head);
   if (image) return image;
-  if (head[0] === 0 && head[1] === 0 && head[2] === 1 && head[3] === 0) return 'image/x-icon';
   if (ascii(4, 8) === 'ftyp') return ascii(8, 11) === 'M4A' || ascii(8, 11) === 'M4B' ? 'audio/mp4' : ascii(8, 10) === 'qt' ? 'video/quicktime' : 'video/mp4';
   if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) return 'video/webm';
   if (ascii(0, 4) === 'OggS') return 'audio/ogg';
@@ -132,6 +169,28 @@ export function mediaType(head: Buffer): string | null {
   if (ascii(0, 3) === 'ID3' || (head[0] === 0xff && (head[1] & 0xe6) === 0xe2)) return 'audio/mpeg';
   if (head[0] === 0xff && (head[1] & 0xf6) === 0xf0) return 'audio/aac';
   return null;
+}
+
+/** The same rule for sound, video and PDF: the bytes decide, so a player can only ever be handed what it plays. */
+export const mediaType = (head: Buffer): string | null => playableType(head) ?? (head.toString('latin1', 0, 5) === '%PDF-' ? 'application/pdf' : null);
+
+// A player seeks by asking for ranges, so a long film never loads whole.
+function sendMedia(real: string, rangeHeader: unknown, reply: FastifyReply) {
+  const { size } = statSync(real);
+  const head = Buffer.alloc(16);
+  const fd = openSync(real, 'r');
+  try {
+    readSync(fd, head, 0, head.length, 0);
+  } finally {
+    closeSync(fd);
+  }
+  const type = mediaType(head);
+  if (!type) throw httpError(415, 'not an image, sound, video or PDF');
+  reply.type(type).header('x-content-type-options', 'nosniff').header('cache-control', 'private, max-age=30').header('accept-ranges', 'bytes');
+  const range = parseRange(rangeHeader, size);
+  if (range === 'bad') return reply.code(416).header('content-range', `bytes */${size}`).send();
+  if (!range) return reply.header('content-length', size).send(createReadStream(real));
+  return reply.code(206).header('content-range', `bytes ${range.start}-${range.end}/${size}`).header('content-length', range.end - range.start + 1).send(createReadStream(real, range));
 }
 
 /** `bytes=a-b` as a player asks for it, to seek. Null: the whole file. */
@@ -148,13 +207,14 @@ export function parseRange(header: unknown, size: number): { start: number; end:
  * A chat speaks in the paths Claude used: absolute ones too, and not only in this tab's folder. Those resolve against the
  * tab's cwd or a known project's root, and from there go through the same checks as a relative path.
  * A relative path missing in the cwd is tried against the tab's project root: Claude may have meant the project, not a subfolder.
+ * Missing there too, it may be a unique file under the cwd that ends with it.
  */
 export function locate(cwd: string, roots: string[], path: unknown, projectRoot: string | null = null): { cwd: string; rel: unknown } {
   if (typeof path !== 'string') return { cwd, rel: path };
   const full = path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path;
   if (!isAbsolute(full)) {
     if (projectRoot && projectRoot !== cwd && !existsSync(join(cwd, full)) && existsSync(join(projectRoot, full))) return { cwd: projectRoot, rel: full };
-    return { cwd, rel: full };
+    return { cwd, rel: bySuffix(cwd, full) };
   }
   for (const root of [cwd, ...roots]) {
     const rel = relative(root, full);
@@ -163,8 +223,25 @@ export function locate(cwd: string, roots: string[], path: unknown, projectRoot:
   throw httpError(403, 'outside the project');
 }
 
+// A session may name its own output relative to the subfolder it worked in. The one file under the cwd (bounded walk)
+// whose path ends that way is the one meant; with none or several the path stays as given and answers 404.
+function bySuffix(cwd: string, rel: string): string {
+  const clean = normalize(rel);
+  if (clean.startsWith('..') || existsSync(join(cwd, clean))) return rel;
+  const hits = walk(cwd).filter((f) => (sep + f).endsWith(sep + clean));
+  return hits.length === 1 ? hits[0] : rel;
+}
+
 /** What a session reads besides projects: attachments, planner notes, task cards, scratch files. Read only: never written or revealed through a tab. */
-export const extraRoots = (ctx: Pick<Ctx, 'paths'>) => [join(ctx.paths.data, 'uploads'), plannerDir(ctx), kanbanDir(ctx), '/tmp'];
+export const extraRoots = (ctx: Pick<Ctx, 'paths' | 'pluginServers'>) => [join(ctx.paths.data, 'uploads'), plannerDir(ctx), ...(ctx.pluginServers?.dirs() ?? []), '/tmp'];
+
+// The tree reads where a file may be read from: the cwd, the projects and the read-only roots.
+function registerTree(ctx: Ctx, tabCwd: (id: string) => string, extra: string[]): void {
+  type Req = { Params: { id: string }; Querystring: { path?: string; root?: string } };
+  const root = (id: string, dir: unknown) => treeRoot(tabCwd(id), [...safely(() => ctx.journal.listProjects(true), []).map((p) => p.root), ...extra], dir);
+  ctx.app.get<Req>('/api/tabs/:id/tree', async (req) => listDir(root(req.params.id, req.query.root).path, req.query.path || undefined));
+  ctx.app.get<Req>('/api/tabs/:id/tree/root', async (req) => root(req.params.id, req.query.root));
+}
 
 export function registerProjectFiles(ctx: Ctx, tabCwd: (id: string) => string, allows: (permission: OsPluginPermission) => boolean, tabProject: (id: string) => string | null = () => null): void {
   type Req = { Params: { id: string }; Querystring: { path?: string } };
@@ -198,25 +275,15 @@ export function registerProjectFiles(ctx: Ctx, tabCwd: (id: string) => string, a
     need('files.media');
     const { cwd, rel } = found(req);
     const real = resolveInside(cwd, rel);
-    const stat = statSync(real);
-    if (!stat.isFile()) throw httpError(400, 'not a file');
-    const { size } = stat;
-    const head = Buffer.alloc(16);
-    const fd = openSync(real, 'r');
-    try {
-      readSync(fd, head, 0, head.length, 0);
-    } finally {
-      closeSync(fd);
-    }
-    const type = mediaType(head);
-    if (!type) throw httpError(415, 'not an image, sound or video');
-    reply.type(type).header('x-content-type-options', 'nosniff').header('cache-control', 'private, max-age=30').header('accept-ranges', 'bytes');
-    const range = parseRange(req.headers.range, size);
-    if (range === 'bad') return reply.code(416).header('content-range', `bytes */${size}`).send();
-    if (!range) return reply.header('content-length', size).send(createReadStream(real));
-    return reply.code(206).header('content-range', `bytes ${range.start}-${range.end}/${size}`).header('content-length', range.end - range.start + 1).send(createReadStream(real, range));
+    if (!statSync(real).isFile()) throw httpError(400, 'not a file');
+    return sendMedia(real, req.headers.range, reply);
   });
-  ctx.app.get<Req>('/api/tabs/:id/tree', async (req) => listDir(tabCwd(req.params.id), req.query.path || undefined));
+  ctx.app.get<Req>('/api/tabs/:id/sheet', async (req) => {
+    need('files.media');
+    const { cwd, rel } = found(req);
+    return readSheet(readWhole(resolveInside(cwd, rel), MAX_IMAGE_BYTES));
+  });
+  registerTree(ctx, tabCwd, extra);
   ctx.app.get<Req>('/api/tabs/:id/file', async (req) => {
     const { cwd, rel } = found(req);
     return readProjectFile(cwd, rel);

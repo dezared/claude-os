@@ -688,6 +688,26 @@ describe('project files', () => {
     assert.deepEqual(locate(sub, [], 'nowhere.ts', project), { cwd: sub, rel: 'nowhere.ts' }, 'nowhere: cwd answers 404');
   });
 
+  it('a relative path missing in the cwd and the project root resolves to the one file under the cwd it ends', async () => {
+    const tab = makeProject('suffix');
+    const png = Buffer.from('89504e470d0a1a0a0000', 'hex');
+    mkdirSync(join(tab, 'tasks/t/out'), { recursive: true });
+    writeFileSync(join(tab, 'tasks/t/out/x.png'), png);
+    assert.deepEqual(locate(tab, [], 'out/x.png', tab), { cwd: tab, rel: join('tasks/t/out/x.png') });
+    assert.deepEqual(locate(tab, [], './out/x.png', tab), { cwd: tab, rel: join('tasks/t/out/x.png') });
+    assert.deepEqual(locate(tab, [], 'ut/x.png', tab), { cwd: tab, rel: 'ut/x.png' }, 'whole names only');
+    const app = Fastify();
+    registerProjectFiles({ app, paths: { data: join(base, 'suffix-data'), vault: join(base, 'suffix-vault') }, journal: { listProjects: () => [] }, audit: () => {} } as never, () => tab, () => true);
+    const image = await app.inject({ url: `/api/tabs/t/image?path=${encodeURIComponent('out/x.png')}` });
+    assert.equal(image.statusCode, 200, image.body);
+    assert.equal(image.headers['content-type'], 'image/png');
+    mkdirSync(join(tab, 'tasks/u/out'), { recursive: true });
+    writeFileSync(join(tab, 'tasks/u/out/x.png'), png);
+    assert.deepEqual(locate(tab, [], 'out/x.png', tab), { cwd: tab, rel: 'out/x.png' }, 'two candidates: none is guessed');
+    assert.equal((await app.inject({ url: `/api/tabs/t/image?path=${encodeURIComponent('out/x.png')}` })).statusCode, 404);
+    await app.close();
+  });
+
   it('outside every root is still 403', async () => {
     const data = join(base, 'roots-data');
     const app = Fastify();

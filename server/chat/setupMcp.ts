@@ -5,6 +5,7 @@ import { createSdkMcpServer, tool, type Options } from '@anthropic-ai/claude-age
 import { z } from 'zod';
 import type { Profile } from '../../shared/contract.ts';
 import type { Ctx } from '../context.ts';
+import { offPluginLines, type DefaultPlugins } from '../tools/osPluginDefaults.ts';
 import { QUESTION_LEVELS } from './profile.ts';
 
 // A server of its own; the setup tab gets no other.
@@ -24,13 +25,19 @@ export function addPrivateWords(file: string, name: string): void {
   appendFileSync(file, `${text && !text.endsWith('\n') ? '\n' : ''}${fresh.join('\n')}\n`);
 }
 
+// What the setup enabled, what it could not and what stays off, for Claude to name in its final message.
+const pluginLines = (p: DefaultPlugins | undefined, off: string[]) => [
+  ...(p?.enabled.length ? [`Plugins enabled: ${p.enabled.join(', ')}`] : []),
+  ...(p?.skipped.length ? [`Plugins not enabled: ${p.skipped.map((s) => `${s.name} (${s.reason})`).join('; ')}`] : []),
+  ...(off.length ? ['Plugins off, enabled on request:', ...off] : []),
+];
+
 export const createSetupMcp = (ctx: Ctx, tabId: string) => createSdkMcpServer({
   name: SETUP_MCP_NAME,
   tools: [
     tool('save_profile', 'Save the user\'s profile from the setup answers. Validated by the server; the error names the field to fix.', {
       name: z.string().describe('How to address the user'),
       language: z.string().describe('ISO 639 code of the reply and UI language, like en or ru'),
-      projectsDir: z.string().describe('Absolute path of an existing writable folder for new projects'),
       questionLevel: z.string().describe(`One of ${Object.keys(QUESTION_LEVELS).join(', ')}`),
     }, async (input) => {
       try {
@@ -42,10 +49,11 @@ export const createSetupMcp = (ctx: Ctx, tabId: string) => createSdkMcpServer({
       }
     }),
 
-    tool('complete_setup', 'Mark the first-run setup as finished. Call after save_profile succeeded.', {}, async () => {
+    tool('complete_setup', 'Mark the first-run setup as finished and enable the plugins that ship enabled. Call after save_profile succeeded.', {}, async () => {
       if (!ctx.settings!.profile()) return fail('No profile yet: call save_profile first');
       ctx.settings!.saveSetup({ step: 'done', completedAt: Date.now(), tabId });
-      return ok('Setup complete');
+      const enabled = await ctx.enableDefaultPlugins?.();
+      return ok(['Setup complete', ...pluginLines(enabled, offPluginLines(ctx.paths))].join('\n'));
     }),
   ],
 });

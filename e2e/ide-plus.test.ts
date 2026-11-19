@@ -7,10 +7,12 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { chromium, type Browser, type Locator, type Page } from 'playwright';
 import { seedSetupDone } from '../server/chat/fixtures/harness.ts';
+import { XLSX, zip } from '../server/tools/fixtures/workbooks.ts';
 import type { Tab } from '../shared/contract.ts';
 
 const REPO = join(import.meta.dirname, '..');
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const PDF = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n';
 const PORT = 47917;
 const base = `http://127.0.0.1:${PORT}`;
 let dir: string;
@@ -34,6 +36,11 @@ before(async () => {
   writeFileSync(join(cwd, 'fake.mp4'), 'not a video at all');
   writeFileSync(join(cwd, 'draw.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20"><rect width="40" height="20" fill="#d97757"/><script>window.__svgRan = true</script></svg>\n');
   writeFileSync(join(cwd, 'data.bin'), Buffer.from([0, 1, 2, 3]));
+  writeFileSync(join(cwd, 'people.csv'), 'name,"note"\r\nAnn,"x, y"\r\nBob,2\r\n');
+  writeFileSync(join(cwd, 'big.csv'), Array.from({ length: 3000 }, (_, r) => Array.from({ length: 20 }, (_, c) => `r${r}c${c}`).join(',')).join('\n'));
+  writeFileSync(join(cwd, 'doc.pdf'), PDF);
+  writeFileSync(join(cwd, 'book.xlsx'), zip(XLSX));
+  writeFileSync(join(cwd, 'old.xls'), Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, ...Buffer.alloc(64)]));
   seedSetupDone(join(dir, 'config'));
   server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(REPO, 'server/index.ts')], {
     stdio: 'ignore',
@@ -257,6 +264,20 @@ test('right click opens a file or folder in the file manager', async () => {
   assert.deepEqual(sent, [{ path: 'src' }, { path: 'crlf.py' }]);
 });
 
+test('with IDE+ a row still tags into the chat only from its menu, and a folder opens as the root', async () => {
+  assert.equal(await row('src').getByRole('button', { name: 'Тегнуть в чат' }).count(), 0);
+  await rightClick(row('crlf.py'));
+  await page.getByRole('menuitem', { name: 'Тегнуть в чат' }).waitFor();
+  assert.equal(await page.getByRole('menuitem', { name: 'Открыть как корень' }).count(), 0);
+  await page.keyboard.press('Escape');
+  await rightClick(row('src'));
+  await page.getByRole('menuitem', { name: 'Открыть в проводнике' }).waitFor();
+  await page.getByRole('menuitem', { name: 'Открыть как корень' }).click();
+  await row(`${cwd}/src/a.ts`).waitFor();
+  await page.getByRole('button', { name: 'Вернуться к папке сессии' }).click();
+  await row('crlf.py').waitFor();
+});
+
 test('media: a picture with its size and zoom, a tone that really decodes, an SVG as a picture that runs nothing and as code', async () => {
   await row('dot.png').getByRole('button', { name: /dot/ }).click();
   const picture = page.getByTestId('ide-plus-picture');
@@ -299,6 +320,100 @@ test('media: a picture with its size and zoom, a tone that really decodes, an SV
 
   await row('data.bin').getByRole('button', { name: /data/ }).click();
   await page.getByText(/Двоичный|двоичн|бинарн/i).first().waitFor();
+});
+
+test('a picture zooms with the bare wheel, pans with a drag and with Space held, and a double click fits it again', async () => {
+  await row('draw.svg').getByRole('button', { name: /draw/ }).click();
+  await page.getByTestId('ide-plus-size').getByText('40×20').waitFor();
+  const stage = page.locator('.idep-stage');
+  const zoom = page.getByTestId('ide-plus-zoom');
+  const percent = async () => parseInt(await zoom.innerText(), 10);
+  const fit = await percent();
+  await stage.hover();
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -600);
+  await page.waitForFunction((f) => parseInt(document.querySelector('[data-testid="ide-plus-zoom"]')!.textContent!, 10) > f * 4, fit);
+  assert.equal(await zoom.getAttribute('aria-pressed'), 'false');
+  const scroll = () => stage.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop, wide: el.scrollWidth > el.clientWidth }));
+  const before = await scroll();
+  assert.ok(before.wide, 'zoomed past the pane');
+  assert.ok(before.x > 0, 'zoomed around the pointer, not the corner');
+  const box = (await stage.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 80, box.y + box.height / 2, { steps: 4 });
+  await page.mouse.up();
+  const dragged = await scroll();
+  assert.ok(Math.abs(dragged.x - before.x - 80) < 2, `${before.x} -> ${dragged.x}`);
+  await page.keyboard.down('Space');
+  await page.locator('.idep-stage.idep-grab').waitFor();
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 4 });
+  await page.locator('.idep-stage.idep-grabbing').waitFor();
+  await page.mouse.up();
+  await page.keyboard.up('Space');
+  assert.ok(Math.abs((await scroll()).x - dragged.x + 120) < 2, 'Space + drag pans too');
+  await stage.dblclick();
+  await page.waitForFunction(() => document.querySelector('[data-testid="ide-plus-zoom"]')!.getAttribute('aria-pressed') === 'true');
+  assert.equal(await percent(), fit);
+});
+
+test('a csv opens as a table with a fixed header; an edited cell saves through the file route and other rows stay byte for byte', async () => {
+  await row('people.csv').getByRole('button', { name: /people/ }).click();
+  const table = page.getByTestId('ide-plus-table');
+  await table.waitFor();
+  assert.equal(await table.locator('thead th').nth(1).innerText(), 'name');
+  assert.equal(await table.locator('thead th').first().evaluate((el) => getComputedStyle(el).position), 'sticky');
+  await table.locator('td').filter({ hasText: /^x, y$/ }).waitFor();
+  await table.locator('td.idep-cell').filter({ hasText: /^2$/ }).click();
+  await page.getByTestId('ide-plus-cell-input').fill('3, "4"');
+  await page.keyboard.press('Enter');
+  await page.getByRole('img', { name: 'Есть несохранённые правки' }).waitFor();
+  assert.equal(readFileSync(join(cwd, 'people.csv'), 'utf8'), 'name,"note"\r\nAnn,"x, y"\r\nBob,2\r\n', 'nothing is written before saving');
+  await page.getByRole('button', { name: 'Сохранить' }).click();
+  await page.getByRole('status').getByText('Сохранено').waitFor();
+  assert.equal(readFileSync(join(cwd, 'people.csv'), 'utf8'), 'name,"note"\r\nAnn,"x, y"\r\nBob,"3, ""4"""\r\n');
+
+  await page.getByRole('button', { name: 'Текст', exact: true }).click();
+  await editor().waitFor();
+  assert.equal(await editor().inputValue(), 'name,"note"\nAnn,"x, y"\nBob,"3, ""4"""\n');
+  await page.getByRole('button', { name: 'Таблица', exact: true }).click();
+  await table.locator('td').filter({ hasText: /^3, "4"$/ }).waitFor();
+  await page.screenshot({ path: process.env.IDE_PLUS_SHOT_TABLE ?? join(dir, 'table.png') });
+});
+
+test('a long table renders only the rows in view and still scrolls to the last one', async () => {
+  await row('big.csv').getByRole('button', { name: /big/ }).click();
+  const table = page.getByTestId('ide-plus-table');
+  await table.locator('td').filter({ hasText: /^r1c1$/ }).waitFor();
+  assert.ok(await table.locator('tbody tr').count() < 200, 'rows out of view are not in the page');
+  await page.locator('.idep-table-wrap').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await table.locator('td').filter({ hasText: /^r2999c0$/ }).waitFor();
+  assert.ok(await table.locator('tbody tr').count() < 200);
+});
+
+test('a pdf opens in the browser viewer from the media route; an xlsx is a read-only table with sheet tabs, an old xls says it cannot be read', async () => {
+  await row('doc.pdf').getByRole('button', { name: /doc/ }).click();
+  const frame = page.getByTestId('ide-plus-pdf');
+  await frame.waitFor();
+  assert.match((await frame.getAttribute('src'))!, /\/media\?path=doc\.pdf$/);
+  const pdf = await page.evaluate(async (id) => {
+    const r = await fetch(`/api/tabs/${id}/media?path=doc.pdf`);
+    return { status: r.status, type: r.headers.get('content-type'), disposition: r.headers.get('content-disposition'), frame: r.headers.get('x-frame-options') };
+  }, tabId);
+  assert.deepEqual(pdf, { status: 200, type: 'application/pdf', disposition: null, frame: null });
+
+  await row('book.xlsx').getByRole('button', { name: /book/ }).click();
+  const table = page.getByTestId('ide-plus-table');
+  await table.locator('th').filter({ hasText: /^Name$/ }).waitFor();
+  await table.locator('td').filter({ hasText: /^Anna B$/ }).click();
+  assert.equal(await page.getByTestId('ide-plus-cell-input').count(), 0, 'read only');
+  await page.getByRole('tab', { name: 'Empty' }).click();
+  await page.locator('[role="tab"][aria-selected="true"]').getByText('Empty').waitFor();
+  await page.getByRole('tab', { name: 'Люди & цифры' }).click();
+  await table.locator('td').filter({ hasText: /^TRUE$/ }).waitFor();
+
+  await row('old.xls').getByRole('button', { name: /old/ }).click();
+  await page.getByRole('alert').getByText('старый формат xls').waitFor();
 });
 
 test('media: a video recorded in the browser plays, seeks over ranges, and the tree shows its icon', async () => {

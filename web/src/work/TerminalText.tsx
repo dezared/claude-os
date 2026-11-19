@@ -7,7 +7,8 @@ import { ImageThumbs, PathLink } from './ToolCall';
 
 const STYLED_CAP = 200_000; // the screen is kept up to 2000 lines of 90: past that it is plain text
 const MAX_THUMBS = 4;
-const ANSI = ['#27272a', '#e5766d', '#8fc99a', '#d9bd7f', '#9dbbdc', '#c3aedb', '#7fc8d0', '#d4d4d8', '#71717a', '#f09a92', '#a8dcb1', '#e8d09a', '#b8d0ea', '#d6c5e8', '#9edbe2', '#fafafa'];
+// The 16 base colours are --ansi-0..15 in styles.css, one set per theme: white text has to turn dark on paper.
+const ANSI = Array.from({ length: 16 }, (_, i) => `var(--ansi-${i})`);
 const CUBE = [0, 95, 135, 175, 215, 255];
 
 function paletteColor(c: number | string): string {

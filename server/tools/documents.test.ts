@@ -25,7 +25,7 @@ async function connect(paths: { data: string; config: string; root: string }, ta
   const topics: string[] = [];
   const projects = [{ key: 'alpha', name: 'alpha', root: '/tmp' }];
   const ctx = { paths, journal: { listProjects: () => projects }, audit: () => {}, invalidate: (...t: string[]) => topics.push(...t), broadcast: () => {} };
-  const server = tab === 'root' ? createRootMcp(ctx as never, {} as never, 'tab-1') : createPlannerMcp(ctx as never, 'tab-1', 'agent', 'alpha');
+  const server = tab === 'root' ? createRootMcp(ctx as never, {} as never, 'tab-1') : createPlannerMcp(ctx as never, {} as never, { id: 'tab-1', title: 'agent', project: 'alpha' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.instance.connect(a);
   const client = new Client({ name: 'test', version: '1' });

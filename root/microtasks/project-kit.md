@@ -2,11 +2,11 @@
 title: Project kit
 title_ru: Набор проекта
 ---
-Install or update the project kit in the project at `{root}`.
+Project kit `{kit}`, action `{action}`, in the project at `{root}`. Install also updates an installed kit, or switches the project to `{kit}` from another kit; remove takes the kit out.
 
 This runs in a work tab of that project: `kit_plan` and `kit_apply` exist only there. Without them (the root tab, the service session), call `open_session` with project `{project}` and this whole request as the prompt, then stop.
 
-1. Call `kit_plan`. It writes nothing and lists the files per action, the skipped tools and the `ask` lines. To remove the kit instead, pass action `remove`.
+1. Call `kit_plan` with kit `{kit}` and action `{action}`. It writes nothing and lists the files per action, the skipped tools and the `ask` lines.
 2. Ask the user only what the `ask` lines list, in one round, then call `kit_plan` again with `answers`. No `ask` lines: ask nothing.
 3. An entry `migrate` means the project has its own instructions. Draft `CLAUDE.md` from the sources it names and call `kit_plan` again with `claudeMd`, and `rules` for the parts you move:
    - keep verification commands, gotchas and decisions; drop what the code shows (architecture, folder trees);

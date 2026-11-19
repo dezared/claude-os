@@ -5,8 +5,11 @@ import { EventEmitter } from 'node:events';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance } from 'fastify';
 import type { GuardDecision } from './memory/guard.ts';
+import type { DefaultPlugins } from './tools/osPluginDefaults.ts';
 import type { KitApi } from './tools/projectKit.ts';
+import type { PluginServersApi } from './tools/osPluginServers.ts';
 import type { MemorySearchHit, MessageKey, NewTabRequest, OsSource, Profile, Project, ProjectPatch, SendRequest, ServerMessage, ServiceTask, SessionInfo, SettingsView, SetupState, Tab, Topic } from '../shared/contract.ts';
+import type { VoiceOptions } from '../shared/voice.ts';
 
 export interface Paths {
   repo: string;
@@ -20,7 +23,6 @@ export interface Paths {
   claudeJson: string; // ~/.claude.json
   claudeBin: string;
   vault: string;
-  newProjectsDir: string; // CLAUDE_OS_NEW_PROJECTS or ~/Projects; the profile's projectsDir comes between them
 }
 
 // CLAUDE_OS_CLAUDE_BIN, then the first claude on PATH, then where the installer puts it.
@@ -50,7 +52,6 @@ export function resolvePaths(env = process.env): Paths {
     claudeJson: env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : join(home, '.claude.json'),
     claudeBin: resolveClaudeBin({ env, pathEnv: env.PATH ?? '', platform: process.platform, home, exists: existsSync }),
     vault: env.CLAUDE_OS_VAULT ?? join(repo, 'vault'),
-    newProjectsDir: env.CLAUDE_OS_NEW_PROJECTS ?? join(home, 'Projects'),
   };
   mkdirSync(paths.data, { recursive: true });
   return paths;
@@ -62,6 +63,7 @@ export interface BusEvents {
   'session-origin': [sessionId: string]; // chat started a session: journal marks it as origin=os
   'rate-limit': [sessionId: string, raw: unknown];
   'turn-finished': [tabId: string];
+  'os-plugins-changed': []; // a plugin was enabled, disabled or updated: its server part comes or goes
 }
 
 // Module-to-module calls. Registration order in index.ts: journal, memory, tools, chat.
@@ -106,7 +108,14 @@ export interface ChatApi {
   // A new tab that starts on the prompt at once; focus false keeps the user where they are.
   openWithPrompt(req: NewTabRequest, prompt: string, opts?: { focus?: boolean; permissionMode?: string }): { tabId: string; cwd: string; title: string };
   // pendingPermission: the tool call an open permission card waits on, null when no such card is open.
-  get(id: string): { send(req: SendRequest): void; pendingPermission(requestId: string): { tool: string; input: Record<string, unknown> } | null };
+  // applyPermissionMode is the tab's mode switcher; warn adds a notice to its transcript.
+  get(id: string): {
+    send(req: SendRequest): void;
+    pendingPermission(requestId: string): { tool: string; input: Record<string, unknown> } | null;
+    row: { permissionMode: string | null };
+    applyPermissionMode(mode: string): Promise<void>;
+    warn(body: { text: string; key: string }): void;
+  };
   liveCommands(id: string): Promise<{ name: string; description: string; argumentHint: string; builtin?: boolean }[] | null>; // null: no running process
   terminalCommands(): string[]; // reported by the CLI, remembered across restarts
   runServiceJob(prompt: string, job: ServiceJobHooks, options?: ServiceJobOptions): void; // queued: one at a time, in the hidden service session
@@ -122,6 +131,7 @@ export interface ChatApi {
 export interface SettingsApi {
   projectDefaults(key: string): { model: string | null; effort: string | null };
   profile(): Profile | null; // null: not set up yet, or the stored one does not fit
+  voice(): VoiceOptions; // the speech model and language, defaults filled in
   setProfile(patch: Partial<Profile>): SettingsView; // the validation of PUT /api/settings/profile, throws 400 with the reason
   setup(): SetupState;
   saveSetup(patch: Partial<SetupState>): void;
@@ -135,6 +145,8 @@ export interface MemoryApi {
   stateNote(key: string): string | null; // contents of _state/<key>.md, up to 1000 chars
   // FTS over the notes; `[`/`]` mark the matches. project: only that one; boost: rank that one higher. limit 1-20, default 5.
   search(q: string, opts?: { limit?: number; project?: string | null; boost?: string | null }): (MemorySearchHit & { path: string })[];
+  // search() fused with the search by meaning once its model is downloaded and the vectors are built; search() alone until then.
+  find(q: string, opts?: { limit?: number; project?: string | null; boost?: string | null }): Promise<(MemorySearchHit & { path: string })[]>;
   recentNotes(limit: number): { id: string; title: string; mtime: number }[]; // newest first
   touch?(): void; // files moved behind the watcher's back
   // PreToolUse check of a Claude OS session's tool call: deny a malformed vault note, null for no decision.
@@ -147,6 +159,8 @@ export interface Ctx {
   chat?: ChatApi;
   settings?: SettingsApi;
   kit?: KitApi; // set by registerTools: the project kit's plans and apply, for the kit MCP tools
+  pluginServers?: PluginServersApi; // set by registerTools: what enabled plugins add to the server and to sessions
+  enableDefaultPlugins?: () => Promise<DefaultPlugins>; // set by registerTools: the first-run setup enables the plugins that ship enabled
   app: FastifyInstance;
   db: DatabaseSync;
   paths: Paths;

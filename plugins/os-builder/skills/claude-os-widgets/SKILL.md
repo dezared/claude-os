@@ -51,7 +51,8 @@ Match the built-in panels; read one before drawing (`web/src/home/ProgressPanel.
 
 - Text: rows `12.5px` in `var(--color-soft)`, captions `11px` in `var(--color-dim)`, secondary numbers `var(--color-muted)`; numbers with `font-variant-numeric: tabular-nums`. Sentence case, no labels in capitals.
 - Colour only from the theme: `--color-fg`, `--color-soft`, `--color-muted`, `--color-dim`, `--color-line2`, `--color-accent`, `--color-ok`, `--color-warn`, `--color-bad`. A subject colour (a brand green, say) is fine for one role, such as the fill of bars, not for text.
-- Progress: a 4px track `rgba(255,255,255,.08)`, `border-radius: 999px`, the fill animating its width.
+- Two themes, dark and light (`data-theme` on `<html>`), and the widget follows both by itself: no fixed `#fff`, `#000` or `rgba(255,255,255,…)`. A tint or a track is `var(--color-raised)` or `color-mix(in srgb, var(--color-fg) 12%, transparent)`; text on a subject colour gets its own dark ink in both themes.
+- Progress: a 4px track `var(--color-raised)`, `border-radius: 999px`, the fill animating its width.
 - One element per widget may be large (the number the person looks for); everything else stays quiet.
 - Motion only for something happening now (a run in progress), and off under `prefers-reduced-motion`.
 - Prefix every CSS class with a short widget prefix (`dpl-`): the styles are global.

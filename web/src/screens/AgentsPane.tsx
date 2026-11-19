@@ -74,7 +74,7 @@ export function AgentRowItem({ a, maxRuns }: { a: AgentRow; maxRuns: number }) {
         type="button"
         onClick={() => useApp.getState().go(agentView(a))}
         title={a.description ?? a.name}
-        className="press grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_110px_110px_120px_90px_72px] items-center gap-4 border-b border-line2 px-5 py-1.5 text-left hover:bg-white/[.04]"
+        className="press grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_110px_110px_120px_90px_72px] items-center gap-4 border-b border-line2 px-5 py-1.5 text-left hover:bg-fg/[.04]"
       >
         <span className="truncate text-soft">{a.name}</span>
         <span className="truncate text-xs text-dim">{a.description}</span>
@@ -236,7 +236,7 @@ function Body({ d }: { d: AgentDetail }) {
         <Section title={t('agents.recent')} icon={History}>
           <div className="border-t border-line2">
             {recent.map((r, i) => (
-              <button key={i} type="button" onClick={() => void openSession({ id: r.session, project: r.project, cwd: '' })} className="press grid w-full grid-cols-[minmax(0,1fr)_120px_64px_80px] items-center gap-3 border-b border-line2 py-1 text-left text-xs hover:bg-white/[.04]">
+              <button key={i} type="button" onClick={() => void openSession({ id: r.session, project: r.project, cwd: '' })} className="press grid w-full grid-cols-[minmax(0,1fr)_120px_64px_80px] items-center gap-3 border-b border-line2 py-1 text-left text-xs hover:bg-fg/[.04]">
                 <span className="truncate text-soft">{r.description ?? r.session}</span>
                 <span className="truncate text-muted">{r.project ? nameOf(r.project) : ''}</span>
                 <span className="text-right text-muted">{fmtTokens(r.tokens)}</span>

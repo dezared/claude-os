@@ -2,6 +2,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, X, type LucideIcon } from 'lucide-react';
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from 'react';
+import { exitCopy } from '@/lib/flip';
 import { cn } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -17,9 +18,9 @@ export function Button({ variant = 'outline', size = 'md', className, type = 'bu
       className={cn(
         'press inline-flex items-center justify-center gap-1.5 rounded-md whitespace-nowrap disabled:opacity-40',
         size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1',
-        variant === 'outline' && 'border border-line bg-white/[.03] text-soft enabled:hover:border-white/20 enabled:hover:bg-white/[.07] enabled:hover:text-fg',
-        variant === 'primary' && 'bg-accent font-medium text-on-accent shadow-[inset_0_1px_0_rgba(255,255,255,.22)] enabled:hover:bg-accent-hover disabled:bg-white/10 disabled:text-muted disabled:opacity-100 disabled:shadow-none',
-        variant === 'danger' && 'bg-[#c2410c] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,.2)] enabled:hover:bg-[#d4500f] disabled:bg-white/10 disabled:text-muted disabled:opacity-100 disabled:shadow-none',
+        variant === 'outline' && 'border border-line bg-fg/[.03] text-soft enabled:hover:border-fg/20 enabled:hover:bg-fg/[.07] enabled:hover:text-fg',
+        variant === 'primary' && 'bg-accent font-medium text-on-accent shadow-[inset_0_1px_0_rgba(255,255,255,.22)] enabled:hover:bg-accent-hover disabled:bg-fg/10 disabled:text-muted disabled:opacity-100 disabled:shadow-none',
+        variant === 'danger' && 'bg-[#c2410c] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,.2)] enabled:hover:bg-[#d4500f] disabled:bg-fg/10 disabled:text-muted disabled:opacity-100 disabled:shadow-none',
         variant === 'ghost' && 'text-muted enabled:hover:bg-raised enabled:hover:text-fg',
         className,
       )}
@@ -44,7 +45,7 @@ export function Input({ className, ...rest }: ComponentProps<'input'>) {
   return (
     <input
       className={cn(
-        'w-full rounded-md border border-line bg-white/[.04] px-2.5 py-1.5 text-fg outline-none transition-colors duration-150 placeholder:text-dim hover:border-white/20 focus:border-accent-deep focus:bg-white/[.06]',
+        'w-full rounded-md border border-line bg-fg/[.04] px-2.5 py-1.5 text-fg outline-none transition-colors duration-150 placeholder:text-dim hover:border-fg/20 focus:border-accent-deep focus:bg-fg/[.06]',
         className,
       )}
       {...rest}
@@ -56,7 +57,7 @@ export function Textarea({ className, ...rest }: ComponentProps<'textarea'>) {
   return (
     <textarea
       className={cn(
-        'w-full resize-none rounded-md border border-line bg-white/[.04] px-2.5 py-2 text-fg outline-none transition-colors duration-150 placeholder:text-dim hover:border-white/20 focus:border-accent-deep focus:bg-white/[.06]',
+        'w-full resize-none rounded-md border border-line bg-fg/[.04] px-2.5 py-2 text-fg outline-none transition-colors duration-150 placeholder:text-dim hover:border-fg/20 focus:border-accent-deep focus:bg-fg/[.06]',
         className,
       )}
       {...rest}
@@ -93,8 +94,10 @@ export function Dialog({
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         {/* The same layer as popovers, so the one opened last is on top; a popover left open dims with the rest. */}
-        <DialogPrimitive.Overlay data-covers-map className="no-drag enter-overlay fixed inset-0 z-50 bg-black/55" />
+        {/* exitCopy: a dialog its owner unmounts at once (`{x && <Dialog open />}`) still fades out; one closed through `open` plays its own exit. */}
+        <DialogPrimitive.Overlay ref={exitCopy} data-covers-map className="no-drag enter-overlay fixed inset-0 z-50 bg-black/55 light:bg-black/25" />
         <DialogPrimitive.Content
+          ref={exitCopy}
           style={{ width: `min(${width}px, calc(100vw - 48px))` }}
           className="popover enter-dialog fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-96px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl outline-none"
           aria-describedby={description ? undefined : undefined}
@@ -172,7 +175,7 @@ export function Select({
       <SelectPrimitive.Trigger
         aria-label={ariaLabel}
         className={cn(
-          'press inline-flex min-w-0 items-center justify-between gap-1.5 rounded-md border border-line bg-white/[.03] px-2 py-1 text-soft outline-none hover:border-white/20 hover:bg-white/[.07] hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40',
+          'press inline-flex min-w-0 items-center justify-between gap-1.5 rounded-md border border-line bg-fg/[.03] px-2 py-1 text-soft outline-none hover:border-fg/20 hover:bg-fg/[.07] hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40',
           className,
         )}
       >
@@ -233,7 +236,7 @@ export function Segmented<T extends string>({
   ariaLabel: string;
 }) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex rounded-lg border border-line bg-white/[.03] p-0.5">
+    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex rounded-lg border border-line bg-fg/[.03] p-0.5">
       {options.map((o) => (
         <button
           key={o.value}
@@ -241,7 +244,7 @@ export function Segmented<T extends string>({
           role="radio"
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
-          className={cn('press inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs', value === o.value ? 'bg-white/[.13] text-fg shadow-[inset_0_1px_0_rgba(255,255,255,.08)]' : 'text-muted hover:text-fg')}
+          className={cn('press inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs', value === o.value ? 'bg-fg/[.13] text-fg shadow-[inset_0_1px_0_rgba(255,255,255,.08)]' : 'text-muted hover:text-fg')}
         >
           {o.icon && <o.icon size={12} />}
           {o.label}

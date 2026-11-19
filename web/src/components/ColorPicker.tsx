@@ -5,7 +5,7 @@ import { t } from '@/lib/i18n';
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const SWATCH = 'press size-5 rounded-full outline-none transition-[box-shadow,transform] duration-150 hover:scale-110 focus-visible:scale-110';
-const RING = 'shadow-[0_0_0_2px_#0e0e12,0_0_0_3.5px_rgba(255,255,255,.75)]'; // the chosen one
+const RING = 'shadow-[0_0_0_2px_#0e0e12,0_0_0_3.5px_rgba(255,255,255,.75)] light:shadow-[0_0_0_2px_#fff,0_0_0_3.5px_rgba(24,24,27,.7)]'; // the chosen one
 
 interface Hsv { h: number; s: number; v: number } // h 0..360, s and v 0..1
 
@@ -138,7 +138,7 @@ export function ColorPicker({ value, onChange, palette, label, open, onOpenChang
                 onChange={(e) => setTyped(e.target.value)}
                 onBlur={commitTyped}
                 onKeyDown={(e) => { if (e.key === 'Enter') commitTyped(); }}
-                className="w-full rounded-md bg-white/[.08] px-2 py-0.5 font-mono text-xs text-fg outline-none"
+                className="w-full rounded-md bg-fg/[.08] px-2 py-0.5 font-mono text-xs text-fg outline-none"
               />
             </div>
           )}

@@ -179,16 +179,15 @@ test('an overlay that throws costs that plugin alone', async () => {
   assert.deepEqual(errors, []);
 });
 
-test('a folder changed after enabling stops counting: command, overlay and mark go, and dispose runs', async () => {
+test('a folder changed after enabling keeps running: the old code is disposed and the new one comes up', async () => {
   await go({ kind: 'tab', id: tabId });
   await page.getByTestId('tiny-mark').last().waitFor();
   writeFileSync(join(dir, 'config/plugins/tiny/ui/extra.js'), 'export {};\n');
-  await page.getByTestId('tiny-overlay').waitFor({ state: 'detached' });
-  await page.getByTestId('tiny-mark').last().waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => (window as unknown as { __tinyDisposed?: boolean }).__tinyDisposed), true);
+  await page.waitForFunction(() => (window as unknown as { __tinyDisposed?: boolean }).__tinyDisposed === true);
+  await page.getByTestId('tiny-overlay').waitFor({ state: 'attached' });
+  await page.getByTestId('tiny-mark').last().waitFor();
   await box().fill('/tiny');
-  await page.waitForTimeout(300);
-  assert.equal(await page.getByText('Tiny command').count(), 0);
+  await page.getByText('Tiny command').first().waitFor();
   await box().fill('');
   assert.deepEqual(errors, []);
 });

@@ -21,7 +21,7 @@ type View = 'commit' | 'log' | 'compare';
 type NameForm = { kind: 'create'; from: Branch | null } | { kind: 'rename'; branch: Branch };
 
 /** Opened from the work bar. Status is never asked for: it runs on opening, on the turn's end, on window focus and after every action. */
-export function GitPanel({ tab, turnKey, onClose }: { tab: Tab; turnKey: unknown; onClose: () => void }) {
+export function GitPanel({ tab, turnKey, onClose, className }: { tab: Tab; turnKey: unknown; onClose: () => void; className?: string }) {
   const base = `/api/tabs/${encodeURIComponent(tab.id)}/git`;
   const q = useApi<GitStatus>(base);
   const [view, setView] = useState<View>('commit');
@@ -141,7 +141,7 @@ export function GitPanel({ tab, turnKey, onClose }: { tab: Tab; turnKey: unknown
   const shownView = view === 'compare' && !compare ? 'commit' : view;
 
   return (
-    <div role="region" aria-label={t('git.title')} className="glass-solid enter-fade absolute inset-2 z-20 flex flex-col overflow-hidden rounded-2xl" data-testid="git-panel">
+    <div role="region" aria-label={t('git.title')} className={cn('glass-solid enter-fade absolute inset-2 z-20 flex flex-col overflow-hidden rounded-2xl', className)} data-testid="git-panel">
       <header className="flex flex-none items-center gap-2 border-b border-line2 py-1 pr-2 pl-3.5">
         <GitBranch size={14} className="flex-none text-accent" />
         {repo ? (

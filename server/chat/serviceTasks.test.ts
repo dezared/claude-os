@@ -91,9 +91,12 @@ test('a planner note goes to a modal task, with its text and project, and the no
   const data = join(base, 'data');
   const started: { prompt: string; project: string | null; modal: boolean; rounds: number; link?: string; title: string }[] = [];
   const app = Fastify();
-  const ctx = { app, journal: { listProjects: () => [] }, paths: { data, root: join(import.meta.dirname, '../../root') }, audit: () => {}, invalidate: () => {}, chat: { tasks: { start: (b: never) => (started.push(b), { id: 't1' }) } } };
+  const ctx = { app, journal: { listProjects: () => [] }, paths: { data, root: join(import.meta.dirname, '../../root') }, audit: () => {}, invalidate: () => {}, chat: { tasks: { start: (b: never) => (started.push(b), { id: 't1' }) } }, pluginServers: { has: (t: string) => t === 'add_kanban_card' && board } };
+  let board = false; // the Kanban+ board's tools, off at first
   registerPlanner(ctx as never);
   const note = addNote(plannerDir(ctx as never), '- [ ] сделать вход\n- [ ] сделать выход');
+  assert.equal((await app.inject({ method: 'POST', url: `/api/planner/${encodeURIComponent(note.id)}/decompose` })).statusCode, 409, 'no board, nowhere for the cards');
+  board = true;
   const res = await app.inject({ method: 'POST', url: `/api/planner/${encodeURIComponent(note.id)}/decompose` });
   assert.equal(res.statusCode, 200, res.body);
   assert.deepEqual([started[0].modal, started[0].rounds, started[0].project, started[0].title], [true, 3, null, note.title]);

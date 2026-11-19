@@ -67,7 +67,7 @@ function CloseDialog({ bridge }: { bridge: DesktopBridge }) {
     });
   };
 
-  const option = 'press flex w-full items-start gap-3 rounded-xl border border-line px-3 py-2.5 text-left hover:border-white/20 hover:bg-white/[.05] disabled:opacity-50';
+  const option = 'press flex w-full items-start gap-3 rounded-xl border border-line px-3 py-2.5 text-left hover:border-fg/20 hover:bg-fg/[.05] disabled:opacity-50';
   return (
     <Dialog open={running !== null} onOpenChange={(open) => !open && setRunning(null)} title={t('desktop.closeTitle')} description={t('desktop.closeText', { list: (running ?? []).map((tab) => tabTitle(tab, t('tabs.root'))).join(', ') })}>
       <div className="flex flex-col gap-2">
@@ -174,7 +174,7 @@ export function FullscreenButton() {
   if (!bridge?.canFullscreen || !mode) return null;
   const label = on ? t('desktop.exitFullscreen') : t('desktop.enterFullscreen');
   return (
-    <button type="button" aria-label={label} title={`${label} · F11`} onClick={() => bridge.setFullscreen(!on)} className="press flex h-7 items-center rounded-md px-2 text-muted hover:bg-white/[.08] hover:text-fg">
+    <button type="button" aria-label={label} title={`${label} · F11`} onClick={() => bridge.setFullscreen(!on)} className="press flex h-7 items-center rounded-md px-2 text-muted hover:bg-fg/[.08] hover:text-fg">
       {on ? <Minimize size={14} /> : <Maximize size={14} />}
     </button>
   );
@@ -193,12 +193,12 @@ export function DesktopBar() {
     return bridge.onApps(setApps);
   }, [visible, bridge]);
   if (!visible || !bridge) return null;
-  const control = 'press flex size-8 flex-none items-center justify-center rounded-md text-muted hover:bg-white/[.08] hover:text-fg';
+  const control = 'press flex size-8 flex-none items-center justify-center rounded-md text-muted hover:bg-fg/[.08] hover:text-fg';
   return (
-    <div role="toolbar" aria-label={t('desktop.bar')} className="pointer-events-auto relative z-20 flex h-10 flex-none items-center gap-1 border-t border-white/[.06] bg-[#050508]/70 px-2 backdrop-blur-md">
+    <div role="toolbar" aria-label={t('desktop.bar')} className="pointer-events-auto relative z-20 flex h-10 flex-none items-center gap-1 border-t border-fg/[.06] bg-[#050508]/70 light:bg-white/75 px-2 backdrop-blur-md">
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         {apps.map((app) => (
-          <button key={app.id} type="button" aria-label={app.title} title={app.title} onClick={() => bridge.activateApp(app.id)} className="press group flex size-8 flex-none items-center justify-center rounded-md hover:bg-white/[.08]">
+          <button key={app.id} type="button" aria-label={app.title} title={app.title} onClick={() => bridge.activateApp(app.id)} className="press group flex size-8 flex-none items-center justify-center rounded-md hover:bg-fg/[.08]">
             {app.icon ? (
               <img src={app.icon} alt="" draggable={false} className="size-5 opacity-60 transition-opacity group-hover:opacity-100" />
             ) : (

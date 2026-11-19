@@ -5,7 +5,7 @@ import { basename, join, relative } from 'node:path';
 import type { WikiPreview, WikiRunView, WikiSize } from '../../shared/contract.ts';
 import { noteMeta } from './frontmatter.ts';
 import { migrate } from './migrate.ts';
-import { noteSummary } from './store.ts';
+import { noteSummary } from './summary.ts';
 import { backupFile, httpError, safely, sha256, unifiedDiff } from './util.ts';
 import { renderMemoryIndex, type IndexNote } from './wikiIndex.ts';
 import { isWikiManaged, setWikiManaged } from './wikiManaged.ts';

@@ -51,6 +51,7 @@ interface UserAction {
   command: string;
   cwd?: string | null;
   confirm?: boolean;
+  bar?: boolean;
 }
 
 interface Builtin {
@@ -114,10 +115,10 @@ export function createActions(ctx: Ctx, approvals: Approvals) {
 
   function list(): ActionDef[] {
     const fixed: ActionDef[] = builtins().map((b) => ({
-      id: b.id, title: b.title, command: b.command, cwd: '{cwd}', confirm: false, builtin: true, approved: true,
+      id: b.id, title: b.title, command: b.command, cwd: '{cwd}', confirm: false, bar: true, builtin: true, approved: true,
     }));
     const user: ActionDef[] = userActions().map((a) => ({
-      id: a.id, title: a.title, command: a.command, cwd: a.cwd ?? null, confirm: a.confirm === true, builtin: false, approved: approvals.isApproved(a.command),
+      id: a.id, title: a.title, command: a.command, cwd: a.cwd ?? null, confirm: a.confirm === true, bar: a.bar !== false, builtin: false, approved: approvals.isApproved(a.command),
     }));
     return [...fixed, ...user];
   }

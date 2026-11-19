@@ -253,8 +253,9 @@ describe('createProjectKit', () => {
       return { pendingPermission: (requestId: string) => pending.get(requestId) ?? null };
     };
     kit.ctx.chat = { tabInfo: () => ({ cwd: root, project: 'proj', kind: 'work' }), get } as unknown as ChatApi;
-    let active: { id: string; dir: string; version: string } | null = { id: 'project-kit', ...KIT };
-    const api = createProjectKit(kit.ctx, () => active, gateOut);
+    type Active = { id: string; dir: string; version: string };
+    let active: Active | Active[] | null = { id: 'project-kit', ...KIT };
+    const api = createProjectKit(kit.ctx, () => (Array.isArray(active) ? active : active ? [active] : []), gateOut);
     const card = (planId: string, tool = KIT_APPLY_TOOL) => {
       const requestId = `r${pending.size}`;
       pending.set(requestId, { tool, input: { planId } });
@@ -358,6 +359,28 @@ describe('createProjectKit', () => {
     assert.equal((await kit.app.inject({ method: 'GET', url: '/api/analytics/kit?from=2026-11-01&to=2026-11-10' })).statusCode, 200);
   });
 
+  it('a second kit installs by id, records it in the lock and stays the project\'s kit', async () => {
+    const root = copy('go');
+    const { kit, api, card, setActive } = setup(root);
+    const other = { id: 'lean-kit', ...KIT, version: '2.0.0' };
+    setActive(other);
+    assert.throws(() => api.plan('t1', { kit: 'project-kit' }), (err) => status(err) === 409 && (err as Error).message === 'enable the project-kit plugin first');
+    const first = api.plan('t1', {});
+    assert.deepEqual([first.kitId, first.kit], ['lean-kit', '2.0.0']);
+    api.approve(first.planId, card(first.planId));
+    await api.apply(first.planId);
+    assert.equal((JSON.parse(read(root, '.claude/kit/lock.json')) as KitLock).id, 'lean-kit');
+    const files = kit.audits.filter((a) => a.action === 'project.kit.apply').length;
+    assert.deepEqual(kit.audits.filter((a) => a.action === 'project.kit').map((a) => [a.target, JSON.parse(a.diff ?? '')]), [['proj', { kit: 'lean-kit', version: '2.0.0', action: 'install', files }]]);
+    // With the shipped kit enabled too, the project keeps its own kit until a plan names another.
+    setActive([{ id: 'project-kit', ...KIT }, other]);
+    kit.ctx.journal.listProjects = () => [{ key: 'proj', root } as never];
+    assert.equal(api.plan('t1', {}).kitId, 'lean-kit');
+    assert.deepEqual(api.status(), { kit: { id: 'project-kit', version: '1.0.0' }, kits: [{ id: 'project-kit', version: '1.0.0' }, { id: 'lean-kit', version: '2.0.0' }], projects: { proj: { id: 'lean-kit', version: '2.0.0' } } });
+    const back = api.plan('t1', { kit: 'project-kit' });
+    assert.deepEqual([back.kitId, back.action], ['project-kit', 'update']);
+  });
+
   it('a stale plan is rejected', async () => {
     const root = copy('go');
     const { api, card } = setup(root);
@@ -381,7 +404,7 @@ describe('createProjectKit', () => {
     const kit = makeKit({ projectForCwd: () => 'proj' });
     dirs.push(kit.base);
     kit.ctx.chat = { tabInfo: () => ({ cwd: copy('go'), project: 'proj', kind: 'work' }) } as unknown as ChatApi;
-    const api = createProjectKit(kit.ctx, () => null, gate);
+    const api = createProjectKit(kit.ctx, () => [], gate);
     assert.throws(() => api.plan('t1', {}), (err) => status(err) === 409 && (err as Error).message === 'enable the project-kit plugin first');
   });
 

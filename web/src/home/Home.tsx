@@ -4,7 +4,7 @@ import { useApi } from '@/lib/api';
 import { cn, isLive } from '@/lib/format';
 import { serverText, t } from '@/lib/i18n';
 import { runMicrotask } from '@/lib/microtask';
-import type { MemoryGraph, Overview, Project, SessionInfo, SettingsView, Tab } from '@/lib/types';
+import type { MemoryMap, MemoryNode, Overview, Project, SessionInfo, SettingsView, Tab } from '@/lib/types';
 import type { MenuItem } from './ActionMenu';
 import { BottomStrip } from './BottomStrip';
 import { ProgressCount, ProgressPanel, useProgressRows } from './ProgressPanel';
@@ -55,9 +55,17 @@ function IndexBanner({ overview }: { overview: Overview | undefined }) {
   );
 }
 
+/** The core's newest notes as drawn, and how many it holds: the map draws a subset, the popover counts the whole. */
+function useCoreNotes(graph: MemoryMap | undefined, coreKey: string | null): { notes: MemoryNode[]; count: number } {
+  return useMemo(() => ({
+    notes: (graph?.nodes ?? []).filter((n) => n.project === coreKey || n.project === null).sort((a, b) => b.mtime - a.mtime),
+    count: (graph?.counts ?? []).filter((c) => c.project === coreKey || c.project === null).reduce((s, c) => s + c.notes, 0),
+  }), [graph, coreKey]);
+}
+
 export function Home({ visible }: { visible: boolean }) {
   const overview = useApi<Overview>('/api/overview', ['overview']);
-  const graph = useApi<MemoryGraph>('/api/memory/graph', ['memory']);
+  const graph = useApi<MemoryMap>('/api/memory/graph', ['memory']);
   const sessions = useApi<SessionInfo[]>('/api/sessions', ['sessions']);
   const projects = useApi<Project[]>('/api/projects', ['projects']);
   const tabs = useApi<Tab[]>('/api/tabs', ['tabs']);
@@ -106,7 +114,7 @@ export function Home({ visible }: { visible: boolean }) {
     return m;
   }, [liveSessions, projects.data, coreKey, clock]);
   const rootWorking = !!tabs.data?.some((x) => x.kind === 'root' && x.status === 'working') || !!sessions.data?.some((s) => s.project === rootKey && rootKey !== null && s.status === 'working');
-  const coreNotes = useMemo(() => (graph.data?.nodes ?? []).filter((n) => n.project === coreKey || n.project === null).sort((a, b) => b.mtime - a.mtime), [graph.data, coreKey]);
+  const coreNotes = useCoreNotes(graph.data, coreKey);
   // Every project that could stand on the map counts here, so a limit changes no colour.
   const colored = useMemo(() => {
     const mapped = (projects.data ?? []).filter((p) => noted.has(p.key) || p.liveCount > 0 || p.pinned).map((p) => p.key);

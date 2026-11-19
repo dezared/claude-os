@@ -39,13 +39,13 @@ function SkyPreview({ sky, id }: { sky: SkyColors; id: string }) {
   );
 }
 
-const TILE = 'press group relative block cursor-pointer overflow-hidden rounded-[10px] text-left outline-none after:pointer-events-none after:absolute after:inset-0 after:rounded-[10px] after:transition-shadow after:duration-150 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const TILE = 'on-dark press group relative block cursor-pointer overflow-hidden rounded-[10px] text-left outline-none after:pointer-events-none after:absolute after:inset-0 after:rounded-[10px] after:transition-shadow after:duration-150 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 const ON = 'after:shadow-[inset_0_0_0_1.5px_var(--color-accent)]';
 const OFF = 'after:shadow-[inset_0_0_0_1px_rgba(255,255,255,.08)] hover:after:shadow-[inset_0_0_0_1px_rgba(255,255,255,.22)]';
 
 function Caption({ on, children }: { on: boolean; children: string }) {
   return (
-    <span className={cn('flex items-center justify-between gap-1 bg-black/45 px-2 py-1 text-[11.5px] transition-colors duration-150', on ? 'text-fg' : 'text-muted group-hover:text-fg')}>
+    <span className={cn('flex items-center justify-between gap-1 bg-[#0e0e12] px-2 py-1 text-[11.5px] transition-colors duration-150', on ? 'text-fg' : 'text-muted group-hover:text-fg')}>
       <span className="truncate">{children}</span>
       {on && <Check size={11} className="flex-none text-accent" />}
     </span>

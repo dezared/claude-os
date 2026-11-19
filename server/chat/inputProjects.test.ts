@@ -8,6 +8,7 @@ import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Project } from '../../shared/contract.ts';
+import { projectListTree, type ProjectListNode } from '../../shared/projectListTree.ts';
 import { projectParents, projectTree, wouldLoop } from '../../shared/projectTree.ts';
 import { projectPatchProblem } from '../journal/projects.ts';
 import { toServerPath, withServerPaths } from '../tools/platform.ts';
@@ -129,5 +130,49 @@ describe('structure of projects', () => {
     for (const patch of [{ name: 'Имя' }, { color: '#AABBCC' }, { color: null }, { parent: '' }, { parent: null }, { parent: 'top' }, { folder: true }, { description: null }]) {
       assert.equal(projectPatchProblem(list, 'a', patch), null, JSON.stringify(patch));
     }
+  });
+});
+
+describe('the projects list as a tree of folders', () => {
+  const show = (nodes: ProjectListNode[]): unknown[] => nodes.map((n) => (n.project ? (n.children.length ? { [n.project]: show(n.children) } : n.project) : { [`${n.name}/`]: show(n.children) }));
+  const home = '/home/u/_projects';
+  const list = [
+    project('_projects', home, { misc: true, parent: '' }),
+    project('csfail', `${home}/csfail`, { misc: true }),
+    project('backend', `${home}/csfail/csfail-backend-clean`),
+    project('_self', `${home}/_self`, { folder: true }),
+    project('claudeOS', `${home}/_self/projects/claudeOS`),
+    project('cv', `${home}/_self/projects/cv`),
+    project('dnd', `${home}/_self/games/dnd-vtt`),
+    project('orderis', `${home}/_self/games/rival/orderis`),
+    project('hub', `${home}/_self/games/rival/hub`),
+    project('upgrader', `${home}/crypto-upgrader/backend`),
+    project('steam', '/mnt/d/Steam/content/1'),
+    project('win', '/mnt/c/Users/me'),
+  ];
+
+  it('nests projects under the folders on disk they share, misc parents included', () => {
+    assert.deepEqual(show(projectListTree(list)), [
+      { '/mnt/': ['steam', 'win'] },
+      { _projects: [
+        { csfail: ['backend'] },
+        { _self: [{ 'games/': [{ 'rival/': ['orderis', 'hub'] }, 'dnd'] }, { 'projects/': ['claudeOS', 'cv'] }] },
+        'upgrader',
+      ] },
+    ]);
+  });
+
+  it('joins a chain of single folders into one row, as VS Code does; the folder all of them share is left out', () => {
+    const deep = [project('a', '/w/x/y/q/a'), project('b', '/w/x/y/q/b'), project('c', '/w/x/z/c')];
+    const tree = projectListTree(deep);
+    assert.deepEqual(show(tree), [{ 'y/q/': ['a', 'b'] }, 'c']);
+    assert.equal(tree[0].path, '/w/x/y/q');
+    assert.equal(tree[0].id, 'dir:/w/x/y/q');
+  });
+
+  it('a parent chosen by hand wins over the folders', () => {
+    const moved = list.map((p) => (p.key === 'cv' ? { ...p, parent: 'csfail' } : p));
+    const csfail = projectListTree(moved)[1].children[0];
+    assert.deepEqual(show([csfail]), [{ csfail: ['backend', 'cv'] }]);
   });
 });

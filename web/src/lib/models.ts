@@ -2,11 +2,11 @@ import { Feather, Flame, Gauge, Rocket, Zap, type LucideIcon } from 'lucide-reac
 import { t } from './i18n';
 
 const LEVELS: { value: string; icon: LucideIcon; iconClass: string }[] = [
-  { value: 'low', icon: Feather, iconClass: 'text-[#6ec1a6]' },
-  { value: 'medium', icon: Gauge, iconClass: 'text-[#6aa9e9]' },
-  { value: 'high', icon: Flame, iconClass: 'text-[#e8b04b]' },
-  { value: 'xhigh', icon: Zap, iconClass: 'text-[#e8804b]' },
-  { value: 'max', icon: Rocket, iconClass: 'text-[#e0565b]' },
+  { value: 'low', icon: Feather, iconClass: 'text-[#6ec1a6] light:text-[#2b8a6c]' },
+  { value: 'medium', icon: Gauge, iconClass: 'text-[#6aa9e9] light:text-[#2f6fb3]' },
+  { value: 'high', icon: Flame, iconClass: 'text-[#e8b04b] light:text-[#a87a12]' },
+  { value: 'xhigh', icon: Zap, iconClass: 'text-[#e8804b] light:text-[#c05a1f]' },
+  { value: 'max', icon: Rocket, iconClass: 'text-[#e0565b] light:text-[#c23c41]' },
 ];
 
 // Levels accepted by `claude --effort`. The contract's /api/models lists models only.

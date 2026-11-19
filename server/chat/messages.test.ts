@@ -32,6 +32,8 @@ const FILES = [
   'server/journal/indexer.ts',
   'server/tools/actions.ts',
   'server/tools/commands.ts',
+  'server/chat/kitTools.ts',
+  'server/chat/secrets.ts',
   'web/src/work/ToolCall.tsx',
 ];
 const codeOf = (line: string) => line.replace(/^\s*(?:\/\/|\/\*\*?|\*).*$/, '').replace(/\s\/\/\s.*$/, '');

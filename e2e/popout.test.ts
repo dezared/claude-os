@@ -233,6 +233,13 @@ test('the main window: menu, header button, a mark on the tab, the way back, the
 
   await main.locator('.work-bar').getByRole('button', { name: 'Открыть в отдельном окне' }).click();
   assert.equal((await calls(main, 'openPopout')).length, 2);
+  // Last in the bar, after every action, set apart by a vertical rule.
+  const tail = await main.locator('.work-bar').evaluate((bar) => {
+    const last = bar.lastElementChild!;
+    const rule = last.previousElementSibling!;
+    return { label: last.getAttribute('aria-label'), rule: rule.classList.contains('popout-divider'), tall: rule.getBoundingClientRect().height > rule.getBoundingClientRect().width };
+  });
+  assert.deepEqual(tail, { label: 'Открыть в отдельном окне', rule: true, tall: true });
 
   await homeButton(main).click({ button: 'right' });
   await main.getByRole('menuitem', { name: 'Открыть в отдельном окне' }).click();
@@ -240,7 +247,7 @@ test('the main window: menu, header button, a mark on the tab, the way back, the
 
   // The burger holds the main screens only: the planner's window is its own button's business.
   await main.getByRole('button', { name: 'Меню' }).click();
-  await main.getByRole('menuitem', { name: 'Канбан' }).waitFor();
+  await main.getByRole('menuitem', { name: 'Аналитика' }).waitFor();
   assert.equal(await main.getByRole('menuitem', { name: 'Планер в отдельном окне' }).count(), 0);
   await main.keyboard.press('Escape');
   const key = `tab:${tab.id}`;
@@ -302,6 +309,46 @@ test('what is typed in the planner moves with it to the window', async () => {
   await out.getByRole('textbox').first().fill('');
   await main.close();
   await out.close();
+});
+
+test('the side question goes out to a window of its own with the thread so far; a plain browser offers no such item', async () => {
+  const main = await enter(ctx);
+  await main.locator('.titlebar').waitFor();
+  const btw = (p: Page) => p.getByRole('dialog', { name: 'Вопрос в сторону' });
+  await main.keyboard.press('Control+Shift+Space');
+  await btw(main).locator('header').click({ button: 'right' });
+  await main.getByRole('menuitem', { name: 'Открыть в отдельном окне' }).click();
+  assert.deepEqual((await calls(main, 'openPopout')).at(-1), ['openPopout', { kind: 'btw' }]);
+  await btw(main).waitFor({ state: 'detached' });
+  assert.deepEqual(JSON.parse((await main.evaluate(() => localStorage.getItem('claude-os.btw-handoff')))!).turns, [], 'the thread, empty here, is left for the window');
+  await main.close();
+
+  // The thread left for it: what the window shows first.
+  const turn = { id: 'q1', question: 'сколько времени?', answer: 'около полудня', done: true, error: null };
+  const seed = await ctx.newPage();
+  await seed.goto(`${origin()}/health`);
+  await seed.evaluate((v) => localStorage.setItem('claude-os.btw-handoff', v), JSON.stringify({ tabId: null, turns: [turn] }));
+  await seed.close();
+  const out = await enter(ctx, '/?popout=btw');
+  await out.getByText('около полудня').waitFor();
+  await out.getByText('сколько времени?').waitFor();
+  assert.equal(await out.title(), 'Вопрос в сторону');
+  assert.equal(await out.evaluate(() => localStorage.getItem('claude-os.btw-handoff')), null, 'taken once');
+  await out.getByRole('textbox', { name: 'Спросите что-нибудь' }).waitFor();
+  assert.equal(await out.getByText(/Выполняет Claude|Входит в|подписк/).count(), 0, 'no cost or plan note under the field');
+  assert.equal(await out.getByRole('button', { name: 'Вернуть в главное окно' }).count(), 0);
+  await out.getByRole('button', { name: 'Закрыть вопрос в сторону' }).click();
+  assert.deepEqual((await calls(out, 'popoutWindow')).at(-1), ['popoutWindow', 'close']);
+  await assertOnlyTheChat(out);
+  await out.close();
+
+  const page = await enter(plain);
+  await page.locator('.titlebar').waitFor();
+  await page.keyboard.press('Control+Shift+Space');
+  await btw(page).locator('header').click({ button: 'right' });
+  await page.waitForTimeout(150);
+  assert.equal(await page.getByRole('menuitem', { name: 'Открыть в отдельном окне' }).count(), 0);
+  await page.close();
 });
 
 test('the window bar: pin and own window controls go to the bridge', async () => {
@@ -483,7 +530,7 @@ test('main process: a real window for each session, only by allow-list, as locke
     assert.equal(a.url, `${ORIGIN}/?popout=tab&id=tab-a`);
     assert.equal(a.options.frame, false);
     assert.deepEqual(a.options.webPreferences, main.options.webPreferences, 'the same isolation and sandbox');
-    assert.deepEqual(a.options.webPreferences, { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: (main.options.webPreferences as { preload: string }).preload });
+    assert.deepEqual(a.options.webPreferences, { contextIsolation: true, nodeIntegration: false, sandbox: true, plugins: true, preload: (main.options.webPreferences as { preload: string }).preload });
     assert.equal(a.options.skipTaskbar, undefined, 'stays in Alt+Tab');
     assert.equal(a.visible, false);
     a.emit('ready-to-show');
@@ -501,6 +548,7 @@ test('main process: a real window for each session, only by allow-list, as locke
     assert.equal(run.open({ kind: 'root' }).url, `${ORIGIN}/?popout=root`);
     assert.equal(run.open({ kind: 'planner' }).url, `${ORIGIN}/?popout=planner`);
     assert.equal(run.open({ kind: 'service' }).url, `${ORIGIN}/?popout=service`);
+    assert.equal(run.open({ kind: 'btw' }).url, `${ORIGIN}/?popout=btw`);
     const count = windows.length;
 
     // Nothing else becomes a window.
@@ -527,14 +575,14 @@ test('main process: a real window for each session, only by allow-list, as locke
     // Closing one: nothing goes to the page but the new list. It stays open when the main window closes to the tray.
     const before = main.sent.length;
     b.close();
-    assert.deepEqual(main.sent.slice(before), [['popouts', ['tab:tab-a', 'root', 'planner', 'service']]]);
+    assert.deepEqual(main.sent.slice(before), [['popouts', ['tab:tab-a', 'root', 'planner', 'service', 'btw']]]);
     assert.equal(run.quits(), 0);
     assert.equal(await run.handlers['popouts-get'](from(main)) instanceof Array, true);
 
     // The way back: the window goes first, then the main window shows the chat.
     ipc['popout-return'](from(a));
     assert.equal(a.closed, true);
-    assert.deepEqual(main.sent.slice(-2), [['popouts', ['root', 'planner', 'service']], ['show-view', { kind: 'tab', id: 'tab-a' }]]);
+    assert.deepEqual(main.sent.slice(-2), [['popouts', ['root', 'planner', 'service', 'btw']], ['show-view', { kind: 'tab', id: 'tab-a' }]]);
     const planner = windows.find((w) => w.url.endsWith('popout=planner'))!;
     ipc['popout-return'](from(main), 'planner');
     assert.equal(planner.closed, true);

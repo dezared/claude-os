@@ -9,8 +9,8 @@ import { usePersisted } from '@/lib/store';
 import type { GitDiff, GitFile } from '@/lib/types';
 import { parseHunks, splitRows, type DiffLine } from '../gitDiff';
 
-const lineTone = { add: 'bg-emerald-500/[.11] text-emerald-100', del: 'bg-rose-500/[.11] text-rose-100', ctx: 'text-muted' } as const;
-export const statusTone: Record<string, string> = { A: 'text-emerald-300', M: 'text-amber-200', D: 'text-rose-300', R: 'text-sky-300', C: 'text-sky-300', U: 'text-accent', '?': 'text-dim', T: 'text-amber-200' };
+const lineTone = { add: 'bg-emerald-500/[.11] text-emerald-100 light:text-emerald-900', del: 'bg-rose-500/[.11] text-rose-100 light:text-rose-900', ctx: 'text-muted' } as const;
+export const statusTone: Record<string, string> = { A: 'text-emerald-300 light:text-emerald-700', M: 'text-amber-200 light:text-amber-700', D: 'text-rose-300 light:text-rose-700', R: 'text-sky-300 light:text-sky-700', C: 'text-sky-300 light:text-sky-700', U: 'text-accent', '?': 'text-dim', T: 'text-amber-200 light:text-amber-700' };
 
 function Num({ n }: { n: number | null }) {
   return <span className="w-10 flex-none pr-2 text-right text-dim/70 select-none">{n ?? ''}</span>;
@@ -29,7 +29,7 @@ function UnifiedLine({ l }: { l: DiffLine }) {
 
 function SideCell({ l }: { l: DiffLine | null }) {
   return (
-    <div className={cn('flex min-w-0 overflow-hidden', l ? lineTone[l.kind] : 'bg-white/[.02]')}>
+    <div className={cn('flex min-w-0 overflow-hidden', l ? lineTone[l.kind] : 'bg-fg/[.02]')}>
       <Num n={l ? l.oldNo ?? l.newNo : null} />
       <span className="min-w-0 pr-2 whitespace-pre-wrap wrap-anywhere">{l ? l.text || ' ' : ''}</span>
     </div>
@@ -43,7 +43,7 @@ const DiffBody = memo(function DiffBody({ diff, split }: { diff: string; split: 
     <div className="selectable font-mono text-[12px] leading-[1.55]">
       {hunks.map((h, i) => (
         <section key={i}>
-          <div className="sticky top-0 z-[1] border-y border-line2 bg-[#141418] px-3 py-0.5 text-[11px] text-dim">{h.header}</div>
+          <div className="sticky top-0 z-[1] border-y border-line2 bg-panel px-3 py-0.5 text-[11px] text-dim">{h.header}</div>
           {split
             ? splitRows(h.lines).map((r, k) => (
               <div key={k} className="grid grid-cols-2 divide-x divide-line2">
@@ -109,7 +109,7 @@ export function FileName({ f }: { f: { path: string; status: string } }) {
 
 export function FileLine({ f, active, onOpen }: { f: GitFile; active: boolean; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} title={f.oldPath ? `${f.oldPath} → ${f.path}` : f.path} className={cn('press flex w-full min-w-0 items-baseline gap-1.5 rounded-md py-0.5 pl-2 text-left font-mono text-[11.5px]', active ? 'bg-white/[.1]' : 'hover:bg-raised')}>
+    <button type="button" onClick={onOpen} title={f.oldPath ? `${f.oldPath} → ${f.path}` : f.path} className={cn('press flex w-full min-w-0 items-baseline gap-1.5 rounded-md py-0.5 pl-2 text-left font-mono text-[11.5px]', active ? 'bg-fg/[.1]' : 'hover:bg-raised')}>
       <FileName f={f} />
     </button>
   );

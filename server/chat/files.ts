@@ -13,7 +13,7 @@ const WALK_DEPTH = 8;
 export const SKIP_DIRS = new Set(['.git', 'node_modules', 'vendor', 'dist', 'build', '.next', '__pycache__']);
 const API_IMAGES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
-function walk(root: string): string[] {
+export function walk(root: string): string[] {
   const found: string[] = [];
   const visit = (dir: string, depth: number) => {
     if (found.length >= WALK_LIMIT || depth > WALK_DEPTH) return;

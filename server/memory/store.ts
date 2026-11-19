@@ -1,48 +1,16 @@
 import { existsSync, openSync, readFileSync, readSync, closeSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { MemoryGraph, MemoryMigrationPlan, MemoryNode, MemoryNote } from '../../shared/contract.ts';
+import type { MemoryMigrationPlan, MemoryNote } from '../../shared/contract.ts';
+import type { MemoryCount, MemoryHealth, MemoryMap, MemoryOverview } from '../../shared/memory.ts';
+import { countSteps, healthSteps, overviewSteps, sampleSteps, type CatalogNote } from './catalog.ts';
 import type { Ctx } from '../context.ts';
-import { noteMeta, type NoteMeta } from './frontmatter.ts';
-import { buildLintIndex, indexNotesOf, lintCtxIn, savedText, searchDocsOf, type LintIndex } from './noteIndex.ts';
+import { createScanner, listMd, subdirs } from './scanner.ts';
+import { indexNotesSteps, lintCtxIn, savedText, searchDocsOf, newLintCache } from './noteIndex.ts';
 import { backupFile, httpError, parseFrontmatter, safely, sha256, toWslUnc, unifiedDiff } from './util.ts';
-import { extractLinks, normalizeName, resolveLinkIn } from './wikilinks.ts';
-import { isMigratedFile, migratedLookup } from './wikiRun.ts';
+import { derived, keepView } from './storeView.ts';
+import { resolvePathIn, toNode, viewNoteCache, type View, type ViewNote } from './view.ts';
+import { isMigratedFile } from './wikiRun.ts';
 
-interface NoteFile {
-  id: string;
-  path: string;
-  file: string;
-  title: string;
-  summary: string | null;
-  content: string;
-  sha: string; // of content
-  meta: NoteMeta;
-  mtime: number;
-  links: string[];
-  vaultKey: string | null; // vault projects/<key>
-  isGlobal: boolean; // vault global/
-  dir: string | null; // unconnected source: <claudeDir>/projects/<dir>/memory
-}
-
-interface ViewNote extends NoteFile {
-  project: string | null;
-  connected: boolean;
-}
-
-interface View {
-  notes: ViewNote[];
-  byId: Map<string, ViewNote>;
-  byName: Map<string, ViewNote[]>; // normalizeName(file) -> notes
-  lint: LintIndex;
-  edges: [string, string][];
-  backlinks: Map<string, string[]>;
-  degree: Map<string, number>;
-  unresolved: number;
-  drift: Map<string, number>;
-}
-
-const SCAN_TTL_MS = 15_000; // watcher misses (inotify limits) heal by themselves
-const VIEW_TTL_MS = 2_000;
 const ROOTS_TTL_MS = 5_000;
 const JSONL_PEEK_BYTES = 256 * 1024;
 const SETTINGS_FILE = '.claude/settings.local.json';
@@ -52,33 +20,29 @@ export function encodeDir(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-');
 }
 
-const SUMMARY_CHARS = 220;
+export { noteSummary } from './summary.ts';
 
-// Frontmatter description, otherwise the first line of body that says something: headings, rules, fences and tables do not.
-export function noteSummary(description: string | undefined, body: string): string | null {
-  const clip = (s: string) => {
-    const line = s.replace(/\s+/g, ' ').trim();
-    return line.length > SUMMARY_CHARS ? `${line.slice(0, SUMMARY_CHARS - 1).trimEnd()}…` : line;
-  };
-  if (description?.trim()) return clip(description);
-  let fenced = false;
-  for (const raw of body.split('\n')) {
-    const line = raw.trim();
-    if (/^(```|~~~)/.test(line)) fenced = !fenced;
-    if (fenced || !line || /^(#|---|\*\*\*|___|```|~~~|\||<!--)/.test(line)) continue;
-    const text = line.replace(/^(?:[-*+]|\d+\.|>)\s+/, '').replace(/\*\*|__|`/g, '').replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, a: string, b?: string) => b ?? a).trim();
-    if (/[\p{L}\p{N}]/u.test(text)) return clip(text);
+// Array.filter, an item per step.
+function* keepIn<T>(items: T[], keep: (t: T) => boolean): Generator<void, T[]> {
+  const out: T[] = [];
+  for (const t of items) {
+    if (keep(t)) out.push(t);
+    yield;
   }
-  return null;
+  return out;
 }
+
+const catalogNote = (n: ViewNote, v: View): CatalogNote => ({
+  id: n.id, name: n.meta.name || n.file.replace(/\.md$/i, ''), project: n.project, connected: n.connected, type: n.meta.type,
+  tags: n.meta.tags, summary: n.summary, mtime: n.meta.modified ?? n.mtime, issues: v.lint.issues.get(n.id) ?? [],
+  degree: v.degree.get(n.id) ?? 0, description: n.meta.description,
+});
 
 export function createStore(ctx: Ctx) {
   const { paths } = ctx;
   const claudeProjects = join(paths.claudeDir, 'projects');
-  let scan: NoteFile[] | null = null;
-  let scannedAt = 0;
-  let view: View | null = null;
-  let viewAt = 0;
+  const scanner = createScanner({ vault: paths.vault, claudeProjects }, join(paths.data, 'memory-snapshot.ndjson'));
+  const lintCache = newLintCache();
   const cwdByDir = new Map<string, string>();
   const keyByDir = new Map<string, string>();
 
@@ -98,56 +62,6 @@ export function createStore(ctx: Ctx) {
       inRoots = false;
     }
     return rootsCache;
-  }
-
-  function readNoteFile(path: string, extra: Pick<NoteFile, 'vaultKey' | 'isGlobal' | 'dir'>): NoteFile | null {
-    return safely(() => {
-      const content = readFileSync(path, 'utf8');
-      const file = basename(path);
-      const { data, body } = parseFrontmatter(content);
-      const heading = /^#\s+(.+)$/m.exec(body)?.[1]?.trim();
-      return {
-        id: sha256(path).slice(0, 16),
-        path,
-        file,
-        title: data.name || heading || file.replace(/\.md$/i, ''),
-        summary: noteSummary(data.description, body),
-        content,
-        sha: sha256(content),
-        meta: noteMeta(content),
-        mtime: statSync(path).mtimeMs,
-        links: extractLinks(content),
-        ...extra,
-      };
-    }, null);
-  }
-
-  function listMd(dir: string, recursive: boolean): string[] {
-    const out: string[] = [];
-    for (const e of safely(() => readdirSync(dir, { withFileTypes: true }), [])) {
-      if (e.name.startsWith('.')) continue;
-      const full = join(dir, e.name);
-      if (e.isDirectory() && recursive) out.push(...listMd(full, true));
-      else if (e.name.toLowerCase().endsWith('.md') && !e.isDirectory()) out.push(full);
-    }
-    return out;
-  }
-
-  function subdirs(dir: string): string[] {
-    return safely(() => readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name), []);
-  }
-
-  function scanFiles(): NoteFile[] {
-    const out: (NoteFile | null)[] = [];
-    for (const key of subdirs(join(paths.vault, 'projects'))) {
-      if (key.startsWith('.')) continue;
-      for (const p of listMd(join(paths.vault, 'projects', key), false)) out.push(readNoteFile(p, { vaultKey: key, isGlobal: false, dir: null }));
-    }
-    for (const p of listMd(join(paths.vault, 'global'), true)) out.push(readNoteFile(p, { vaultKey: null, isGlobal: true, dir: null }));
-    for (const dir of subdirs(claudeProjects)) {
-      for (const p of listMd(join(claudeProjects, dir, 'memory'), false)) out.push(readNoteFile(p, { vaultKey: null, isGlobal: false, dir }));
-    }
-    return out.filter((n) => n !== null);
   }
 
   function cwdsInJournals(dir: string): string[] {
@@ -219,65 +133,29 @@ export function createStore(ctx: Ctx) {
     return dir.startsWith(resolve(paths.vault) + '/') ? dir : null;
   }
 
-  function getView(): View {
-    if (view && Date.now() - viewAt < VIEW_TTL_MS) return view;
-    if (!scan || Date.now() - scannedAt > SCAN_TTL_MS) {
-      scan = scanFiles();
-      scannedAt = Date.now();
-    }
+  const viewNote = viewNoteCache();
+  ctx.app.addHook('onClose', async () => scanner.close());
+  // The map of a large vault is sampled in slices too, before anyone is told the view is ready.
+  const kept = keepView(ctx, scanner, () => {
     roots();
-    const drift = new Map<string, number>();
-    const notes: ViewNote[] = [];
-    const migrated = migratedLookup(paths);
-    // A migrated original stays out: its rewrite lives in the vault now.
-    for (const n of scan.filter((s) => !s.dir || migrated(keyForDir(s.dir)).get(s.file) !== s.sha)) {
-      if (!n.dir) {
-        notes.push({ ...n, project: n.vaultKey, connected: true });
-        continue;
-      }
-      const project = keyForDir(n.dir);
-      // Claude OS sessions write to the vault without touching the project's settings, so a vault dir counts too.
-      const ownDir = project ? join(paths.vault, 'projects', project) : null;
-      const vaultDir = project ? connectedDir(project) ?? (ownDir && existsSync(ownDir) ? ownDir : null) : null;
-      if (project && vaultDir) {
-        // Already copied notes live in the vault. What is missing there is drift: still shown, read only.
-        if (existsSync(join(vaultDir, n.file))) continue;
-        drift.set(project, (drift.get(project) ?? 0) + 1);
-      }
-      notes.push({ ...n, project, connected: false });
-    }
-    const links = buildLinks(notes, drift);
-    const next = { ...links, lint: buildLintIndex(paths.vault, notes, links.byName) };
-    view = next;
-    viewAt = Date.now();
-    return next;
-  }
+    return { paths, keyForDir, connectedDir, viewNote, lintCache };
+  }, () => map.prime());
+  const { getView, viewBuild, notesBuild, ready } = kept;
+  const derivedAt = { build: viewBuild, size: () => getView().notes.length };
 
   const lintCtx = (path: string) => lintCtxIn(paths.vault, getView().lint, path);
   const searchDocs = () => searchDocsOf(getView().notes);
-  const indexNotes = (key: string) => indexNotesOf(getView().notes, key);
+  const indexNotesLater = (key: string) => indexNotesSteps(getView().notes, key);
 
   const resolveLinkPath = (fromPath: string, name: string) => resolvePathIn(getView(), fromPath, name);
 
-  function touch() {
-    scan = null;
-    view = null;
+  // Paths: only these changed (the watcher knows) and update the view; none: something did (a migration), find out
+  // with a stat pass and build the view from scratch.
+  function touch(changed?: string[]) {
+    scanner.mark(changed);
+    if (!changed) kept.rebuild();
   }
 
-  function toNode(n: ViewNote, v: View, live: Set<string>): MemoryNode {
-    return {
-      id: n.id,
-      title: n.title,
-      file: n.file,
-      project: n.project,
-      connected: n.connected,
-      degree: v.degree.get(n.id) ?? 0,
-      live: n.project !== null && live.has(n.project),
-      mtime: n.mtime,
-      summary: n.summary,
-      issues: v.lint.issues.get(n.id) ?? [],
-    };
-  }
 
   function liveProjects(): Set<string> {
     const live = new Set<string>();
@@ -285,22 +163,58 @@ export function createStore(ctx: Ctx) {
     return live;
   }
 
-  function graph(): MemoryGraph {
-    const v = getView();
-    const live = liveProjects();
+  // The root session's folder and this repository are one thing on the map and in the panel: the core.
+  function folder(): (n: ViewNote) => ViewNote {
     const coreProject = safely(() => ctx.journal.projectForCwd(paths.repo), null);
     const rootProject = safely(() => ctx.journal.projectForCwd(paths.root), null);
+    return (n) => (n.project === rootProject && coreProject ? { ...n, project: coreProject } : n);
+  }
+
+  // A representative subset at any vault size, chosen once per view; the counts are the whole vault.
+  const map = derived(ctx, derivedAt, function* mapSteps(): Generator<void, { build: number; nodes: ViewNote[]; edges: [string, string][]; total: number; counts: MemoryCount[] }> {
+    const build = viewBuild();
+    const v = getView();
+    const notes = v.notes.map(folder());
+    yield;
+    const shown = yield* sampleSteps(notes, v.edges, v.degree);
+    const all = shown.size === notes.length;
+    const nodes = all ? notes : yield* keepIn(notes, (n) => shown.has(n.id));
+    const edges = all ? v.edges : yield* keepIn(v.edges, ([a, b]) => shown.has(a) && shown.has(b));
+    return { build, nodes, edges, total: notes.length, counts: yield* countSteps(notes) };
+  });
+
+  function graph(): MemoryMap {
+    const v = getView();
+    const live = liveProjects();
+    const { nodes, edges, total, counts } = map.get();
     return {
-      // The root session's folder and this repository are one thing on the map: the core.
-      nodes: v.notes.map((n) => toNode(n.project === rootProject && coreProject ? { ...n, project: coreProject } : n, v, live)),
-      edges: v.edges,
+      nodes: nodes.map((n) => toNode(n, v, live)),
+      edges,
       unresolved: v.unresolved,
       vaultPath: paths.vault,
       vaultExists: existsSync(paths.vault),
-      coreProject,
-      rootProject,
+      coreProject: safely(() => ctx.journal.projectForCwd(paths.repo), null),
+      rootProject: safely(() => ctx.journal.projectForCwd(paths.root), null),
+      total,
+      counts,
     };
   }
+
+  // Every note but the generated MEMORY.md, for the Storage panel, with its figures; rebuilt with the view.
+  const catalogOf = derived(ctx, derivedAt, function* catalogSteps(): Generator<void, { build: number; notes: CatalogNote[]; health: Map<string, MemoryHealth[]>; overview: MemoryOverview }> {
+    const build = viewBuild();
+    const v = getView();
+    const fold = folder();
+    const notes: CatalogNote[] = [];
+    for (const n of v.notes) {
+      if (n.file === 'MEMORY.md') continue;
+      notes.push(catalogNote(fold(n), v));
+      yield;
+    }
+    const health = yield* healthSteps(notes);
+    return { build, notes, health, overview: yield* overviewSteps(notes, health) };
+  });
+  const catalog = () => catalogOf.get();
 
   function note(id: string): MemoryNote {
     const v = getView();
@@ -332,7 +246,7 @@ export function createStore(ctx: Ctx) {
     backupFile(paths.data, current.path);
     writeFileSync(current.path, text);
     ctx.audit('memory.save', current.path, unifiedDiff(current.markdown, text, current.node.file));
-    touch();
+    touch([current.path]);
     ctx.invalidate('memory');
     return note(id);
   }
@@ -404,50 +318,7 @@ export function createStore(ctx: Ctx) {
     };
   }
 
-  return { graph, note, save, searchDocs, indexNotes, lintCtx, resolveLinkPath, stats, recentNotes, noteHead, touch, roots, connectedDir, migrationPlan, sourceDirsFor, listMd };
-}
-
-// The vault path a [[name]] in the note at fromPath opens, as the graph resolves it.
-function resolvePathIn(v: Pick<View, 'notes' | 'byName'>, fromPath: string, name: string): string | null {
-  const from = v.notes.find((n) => n.path === fromPath);
-  return from ? resolveLinkIn(v.byName, from, normalizeName(name))?.path ?? null : null;
-}
-
-function buildLinks(notes: ViewNote[], drift: Map<string, number>): Omit<View, 'lint'> {
-  const byName = new Map<string, ViewNote[]>();
-  const byId = new Map<string, ViewNote>();
-  for (const n of notes) {
-    byId.set(n.id, n);
-    const name = normalizeName(n.file);
-    const list = byName.get(name);
-    if (list) list.push(n);
-    else byName.set(name, [n]);
-  }
-  const edges: [string, string][] = [];
-  const seen = new Set<string>();
-  const degree = new Map<string, number>();
-  const backlinks = new Map<string, string[]>();
-  let unresolved = 0;
-  for (const n of notes) {
-    for (const name of n.links) {
-      const target = resolveLinkIn(byName, n, name);
-      if (!target) {
-        unresolved++;
-        continue;
-      }
-      if (target.id === n.id) continue;
-      const back = backlinks.get(target.id);
-      if (back) back.push(n.id);
-      else backlinks.set(target.id, [n.id]);
-      const pair = n.id < target.id ? `${n.id}|${target.id}` : `${target.id}|${n.id}`;
-      if (seen.has(pair)) continue;
-      seen.add(pair);
-      edges.push([n.id, target.id]);
-      degree.set(n.id, (degree.get(n.id) ?? 0) + 1);
-      degree.set(target.id, (degree.get(target.id) ?? 0) + 1);
-    }
-  }
-  return { notes, byId, byName, edges, backlinks, degree, unresolved, drift };
+  return { graph, catalog, note, save, searchDocs, searchChanges: kept.searchChanges, viewBuild, notesBuild, indexNotesLater, lintCtx, resolveLinkPath, stats, recentNotes, noteHead, touch, roots, connectedDir, migrationPlan, sourceDirsFor, listMd, complete: kept.complete, ready, noteFiles: () => scanner.current().notes };
 }
 
 export type Store = ReturnType<typeof createStore>;

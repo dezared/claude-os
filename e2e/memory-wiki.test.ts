@@ -90,24 +90,46 @@ test('note panel lists the note\'s issues', async () => {
   await page.getByText(/Сохранено, но остались ошибки формата: Не на английском/).waitFor();
 });
 
-test('vault pane shows format issues per project', async () => {
+test('storage pane: per-project figures, a health chip filters the list of all notes, a note opens', async () => {
   const data = defaultFixture();
-  const withIssues = data.graph.nodes.filter((n) => n.connected && n.issues.length > 0);
+  const withIssues = data.graph.nodes.filter((n) => n.issues.length > 0);
   assert.ok(withIssues.length >= 2, 'the fixture has notes with issues');
   const big = 'eta-infra';
   for (let i = 0; i < 181; i++) {
-    data.graph.nodes.push({ id: `big${i}`, title: `big_${i}`, file: `big_${i}.md`, project: big, connected: true, degree: 0, live: false, mtime: Date.now(), summary: null, issues: [] });
+    data.graph.nodes.push({ id: `big${i}`, title: `big_${i}`, file: `big_${i}.md`, project: big, connected: true, degree: 0, live: false, mtime: Date.now(), summary: null, issues: [], type: 'project', tags: ['infra'], modified: null });
   }
   const page = await open(data, { kind: 'tools', pane: 'vault' });
   const stat = page.getByText('Ошибки формата', { exact: true }).first().locator('xpath=ancestor::div[1]');
   await stat.locator('b').getByText(String(withIssues.length), { exact: true }).waitFor();
 
-  const table = page.getByRole('table', { name: 'Ошибки формата' });
+  const table = page.getByRole('table', { name: 'Проекты' });
+  const bigRow = table.getByRole('row').filter({ hasText: big });
+  await bigRow.getByText(String(data.graph.nodes.filter((n) => n.project === big).length), { exact: true }).waitFor();
+  assert.equal(await page.getByText(/больше 180/).count(), 0, 'no cap on how many notes a project holds');
+
   const project = withIssues[0].project!;
-  const row = table.getByRole('row').filter({ hasText: project });
-  const count = withIssues.filter((n) => n.project === project && n.issues.includes('not-english')).length;
-  await row.getByText(`Не на английском ${count}`).waitFor();
-  await table.getByRole('row').filter({ hasText: big }).getByText('больше 180 заметок').waitFor();
+  const count = withIssues.filter((n) => n.project === project).length;
+  await table.getByRole('row').filter({ hasText: project }).getByRole('button', { name: `ошибки формата ${count}` }).click();
+  const list = page.getByRole('list', { name: 'Все заметки' });
+  await page.waitForFunction((n) => document.querySelectorAll('[aria-label="Все заметки"] > li').length === n, count);
+  await list.getByText(withIssues[0].title, { exact: true }).waitFor();
+
+  await page.getByRole('textbox', { name: 'Поиск по всем заметкам' }).fill('big_17');
+  await page.getByRole('combobox', { name: 'Состояние' }).click();
+  await page.getByRole('option', { name: 'Любое состояние' }).click();
+  await page.getByRole('combobox', { name: 'Проект' }).click();
+  await page.getByRole('option', { name: 'Все проекты' }).click();
+  await list.getByText('big_17', { exact: true }).first().click(); // the name; the snippet repeats it
+  await page.getByRole('complementary', { name: 'Заметка памяти' }).waitFor();
+});
+
+test('storage pane: a project\'s notes go to Claude to tidy up from the row menu', async () => {
+  const page = await open(defaultFixture(), { kind: 'tools', pane: 'vault' });
+  const row = page.getByRole('table', { name: 'Проекты' }).getByRole('row').filter({ hasText: 'alpha-service' });
+  await row.hover();
+  await row.getByRole('button', { name: /^Заметки проекта/ }).click();
+  await page.getByRole('menuitem', { name: 'Навести порядок с Claude' }).click();
+  await page.getByRole('dialog').getByText('Навести порядок в заметках проекта').waitFor();
 });
 
 // ---------- Migration ----------
@@ -128,16 +150,16 @@ const ready = (project: string, state: WikiRunView['state'] = 'ready'): WikiRunV
   batches: [{ n: 1, files: ['project.md', 'state.md'], tabId: 't1', status: 'ok', errors: [], warnings: [] }],
 });
 
-/** The vault pane with a note in each of `keys`, so each has a row in the format list. */
+/** The vault pane with a note in each of `keys`, so each has a row in the projects table. */
 async function vault(runs: Record<string, WikiRunView>, keys = Object.keys(runs)): Promise<Page> {
   const data = defaultFixture();
-  data.graph.nodes = keys.map((key, i) => ({ id: `w${i}`, title: `note_${key}`, file: `note_${key}.md`, project: key, connected: true, degree: 0, live: false, mtime: Date.now(), summary: null, issues: ['not-english'] }));
+  data.graph.nodes = keys.map((key, i) => ({ id: `w${i}`, title: `note_${key}`, file: `note_${key}.md`, project: key, connected: true, degree: 0, live: false, mtime: Date.now(), summary: null, issues: ['not-english'], type: null, tags: [], modified: null }));
   data.graph.edges = [];
   data.wiki = runs;
   return open(data, { kind: 'tools', pane: 'vault' });
 }
 
-const row = (page: Page, key: string) => page.getByRole('table', { name: 'Ошибки формата' }).getByRole('row').filter({ hasText: key });
+const row = (page: Page, key: string) => page.getByRole('table', { name: 'Проекты' }).getByRole('row').filter({ hasText: key });
 const dialog = (page: Page) => page.getByRole('dialog', { name: /Миграция заметок/ });
 const wikiCalls = () => fx!.calls.filter((c) => c.path.startsWith('/api/memory/wiki/'));
 

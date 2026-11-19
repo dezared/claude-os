@@ -37,7 +37,7 @@ The server keeps running after you close the browser: sessions live in the serve
 The home screen offers a setup:
 
 1. **Checks**, with no prompt sent: Claude Code found and logged in, Node and git versions, your plan's limits.
-2. **A short talk with Claude**: your name, the language for replies (it is also the interface language), the folder for new projects and how often Claude should ask before acting.
+2. **A short talk with Claude**: your name, the language for replies (it is also the interface language) and how often Claude should ask before acting. There is no projects folder: ask in the Home tab to add a project and say where it is.
 3. **Done.** Your projects appear on the map from Claude Code's own journals; nothing to import.
 
 You can leave the setup and continue later from the menu, under "Run setup again".
@@ -67,7 +67,6 @@ Environment variables, read when the server starts:
 | `CLAUDE_OS_DATA` | `./data` | App state, session index, documents, planner, uploads, backups |
 | `CLAUDE_OS_VAULT` | `./vault` | Memory notes |
 | `CLAUDE_OS_CLAUDE_BIN` | `claude` on `PATH` | Path to the Claude Code binary |
-| `CLAUDE_OS_NEW_PROJECTS` | `~/Projects` | Where new projects go when the profile does not say |
 | `ANTHROPIC_API_KEY` | not set | Passed to Claude Code like any environment variable, if you use API billing |
 
 ## Updating

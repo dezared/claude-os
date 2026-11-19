@@ -1,9 +1,10 @@
 import { CircleStop, FileText, Orbit, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useContextMenu } from '@/components/ContextMenu';
 import { StatusDot } from '@/components/StatusDot';
 import { Button, Dialog, IconButton } from '@/components/ui';
 import { api } from '@/lib/api';
+import { useExitCopy } from '@/lib/flip';
 import { fmtAgo, statusLabel } from '@/lib/format';
 import { t, tn } from '@/lib/i18n';
 import { toast, toastError, useApp } from '@/lib/store';
@@ -43,11 +44,11 @@ function SessionRow({ s, onStop }: { s: SessionInfo; onStop: () => void }) {
 }
 
 /** What the core holds: the same notes that lie around the nucleus. */
-function CoreNotes({ notes, onOpen }: { notes: MemoryNode[]; onOpen: () => void }) {
+function CoreNotes({ notes, count, onOpen }: { notes: MemoryNode[]; count: number; onOpen: () => void }) {
   const openNote = useApp((s) => s.openNote);
   return (
     <div className="mb-1 border-b border-line2 px-2 pb-1.5">
-      <div className="mb-0.5 text-[11px] text-muted">{notes.length} {tn('unit.note', notes.length)}</div>
+      <div className="mb-0.5 text-[11px] text-muted">{count} {tn('unit.note', count)}</div>
       {notes.slice(0, CORE_NOTES_SHOWN).map((n) => (
         <button
           key={n.id}
@@ -92,7 +93,7 @@ export function ProjectPopover({
   isCore: boolean;
   project: Project | undefined;
   sessions: SessionInfo[];
-  coreNotes: MemoryNode[];
+  coreNotes: { notes: MemoryNode[]; count: number };
   color: string;
   anchor: DOMRect;
   beside: boolean; // next to a row in the list, otherwise above the badge: the cluster below stays in sight
@@ -107,7 +108,7 @@ export function ProjectPopover({
   onFly: (key: string) => void;
   mapped: boolean | undefined;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useExitCopy<HTMLDivElement>(); // closed: it fades out where it stood
   const opener = useRef(document.activeElement as HTMLElement | null);
   const [confirm, setConfirm] = useState<SessionInfo | null>(null);
   const [busy, setBusy] = useState(false);
@@ -117,7 +118,7 @@ export function ProjectPopover({
     if (autoFocus) ref.current?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
   }, [autoFocus, projectKey]);
   useEffect(() => onHold(confirm !== null), [confirm, onHold]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     onAnchor?.(ref.current);
     return () => onAnchor?.(null);
   }, [onAnchor, projectKey]);
@@ -171,7 +172,7 @@ export function ProjectPopover({
         <h3 className="min-w-0 flex-1 truncate text-[13px] font-medium">{name}</h3>
         {isCore && <span className="flex-none text-[11px] text-dim">{t('project.core')}</span>}
       </div>
-      {isCore && <CoreNotes notes={coreNotes} onOpen={onClose} />}
+      {isCore && <CoreNotes notes={coreNotes.notes} count={coreNotes.count} onOpen={onClose} />}
       {sessions.length === 0 ? (
         <p className="px-2 pb-1.5 text-xs text-muted">{t('project.noSessions')}</p>
       ) : (

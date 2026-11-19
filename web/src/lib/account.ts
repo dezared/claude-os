@@ -18,7 +18,8 @@ export function useShowCost(): boolean {
 export function spendNote(): string {
   const a = peekCached<AccountStatus>('/api/account');
   if (a?.billing === 'api') return t('cost.api');
-  if (a?.billing === 'subscription') return a.plan ? t('cost.plan', { plan: a.plan }) : t('cost.subscription');
+  // No plan or subscription is named anywhere in the interface: only whether something extra is paid.
+  if (a?.billing === 'subscription') return t('cost.subscription');
   return t('cost.unknown');
 }
 

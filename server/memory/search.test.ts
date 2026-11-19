@@ -47,13 +47,14 @@ test('prefix match: migration finds migrations', () => {
   assert.deepEqual(names('migration'), ['m']);
 });
 
-test('AND first, OR when AND finds nothing', () => {
+test('AND first, then OR to fill the limit', () => {
   index.sync([
     doc({ path: '/v/both.md', name: 'both', body: 'redis cache and queue' }),
     doc({ path: '/v/cache.md', name: 'cache', body: 'redis cache only' }),
     doc({ path: '/v/queue.md', name: 'queue', body: 'kafka queue only' }),
   ]);
-  assert.deepEqual(names('redis queue'), ['both']);
+  assert.deepEqual(names('redis queue'), ['both', 'queue', 'cache']);
+  assert.deepEqual(names('redis queue', { limit: 1 }), ['both']);
   assert.deepEqual(names('kafka cache').sort(), ['both', 'cache', 'queue']);
   assert.equal(toMatch('redis queue', 'AND'), '"redis"* AND "queue"*');
   assert.equal(toMatch('redis queue', 'OR'), '"redis"* OR "queue"*');
@@ -135,4 +136,11 @@ test('tool text has one block per hit and the path', () => {
     'global/two [-] — ', '  [topic] text padded with several more words', '  /v/two.md',
   ].join('\n'));
   assert.equal(formatHits([]), 'No notes match. Try other English keywords, or project "*".');
+});
+
+test('the OR fallback leaves out a word in a thousand notes or more', () => {
+  const many = Array.from({ length: 1000 }, (_, i) => doc({ path: `/v/n${i}.md`, name: `n${i}`, body: 'payout batch noise' }));
+  index.sync([...many, doc({ path: '/v/cut.md', name: 'cutoff', body: 'the payout batch closes at the cutoff' })]);
+  assert.deepEqual(names('payout cutoff missing', { limit: 20 }), ['cutoff']);
+  assert.equal(names('payout missing', { limit: 20 }).length, 20, 'only common words: all of them still rank');
 });

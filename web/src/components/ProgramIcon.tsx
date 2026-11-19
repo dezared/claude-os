@@ -3,7 +3,7 @@ import { siAndroidstudio, siClion, siCursor, siDatagrip, siGoland, siIntellijide
 import { cn } from '@/lib/format';
 
 const GLYPHS: Record<string, { path: string; color: string }> = {
-  cursor: { path: siCursor.path, color: '#e4e4e7' },
+  cursor: { path: siCursor.path, color: 'var(--color-soft)' },
   phpstorm: { path: siPhpstorm.path, color: '#b491f5' },
   webstorm: { path: siWebstorm.path, color: '#4fc3e8' },
   pycharm: { path: siPycharm.path, color: '#5fd38a' },
@@ -33,7 +33,7 @@ const MONOGRAMS: Record<string, { text: string; color: string }> = {
 export function ProgramIcon({ id, name, size = 18, className }: { id: string; name?: string; size?: number; className?: string }) {
   const glyph = GLYPHS[id];
   const mono = MONOGRAMS[id];
-  const tile = cn('inline-flex flex-none items-center justify-center rounded-[5px] bg-white/[.075]', className);
+  const tile = cn('inline-flex flex-none items-center justify-center rounded-[5px] bg-fg/[.075]', className);
   const box = { width: size, height: size };
   if (glyph) {
     return (

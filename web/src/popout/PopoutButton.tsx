@@ -25,14 +25,17 @@ export function rootPlaceItems(root: Pick<Tab, 'id' | 'kind'> | undefined): Menu
   return [{ id: 'root.openTab', label: t('root.openTab'), icon: PanelTop, onSelect: () => openRootTab(root.id) }, ...popoutItems(root)];
 }
 
-/** In the chat's header: out to a window, and back. */
+/** Last in the chat's header, set apart by a rule: out to a window, and back. */
 export function PopoutButton({ tab, className }: { tab: Pick<Tab, 'id' | 'kind'>; className?: string }) {
   const windows = popoutBridge();
   const out = usePoppedOut(tab);
   if (!windows) return null;
   return (
-    <IconButton label={out ? t('popout.return') : t('popout.open')} aria-pressed={out} className={className} onClick={() => (out ? windows.returnPopout(popoutKey(tab)) : windows.openPopout(popoutRequest(tab)))}>
-      {out ? <PanelTopClose size={14} className="text-accent" /> : <AppWindow size={14} />}
-    </IconButton>
+    <>
+      <span aria-hidden="true" className="popout-divider block h-4 w-px flex-none bg-line" />
+      <IconButton label={out ? t('popout.return') : t('popout.open')} aria-pressed={out} className={className} onClick={() => (out ? windows.returnPopout(popoutKey(tab)) : windows.openPopout(popoutRequest(tab)))}>
+        {out ? <PanelTopClose size={14} className="text-accent" /> : <AppWindow size={14} />}
+      </IconButton>
+    </>
   );
 }

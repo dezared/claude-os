@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import type { ActionDef, McpServer, SettingsView, Skill, WidgetDef, WidgetValue } from '../../shared/contract.ts';
@@ -247,6 +247,7 @@ test('an unapproved command is refused, a changed command needs approval again',
 
   let def = (await req<ActionDef[]>('GET', '/api/actions')).body.find((a) => a.id === 'a')!;
   assert.equal(def.approved, false);
+  assert.equal(def.bar, true, 'a user action is on the tab bar unless it says otherwise');
   const refused = await req<{ error: string; command: string; sha256: string }>('POST', '/api/actions/a/run', {});
   assert.equal(refused.status, 409);
   assert.equal(refused.body.error, 'pending approval');
@@ -273,6 +274,15 @@ test('an unapproved command is refused, a changed command needs approval again',
   assert.equal((await req<ActionDef>('POST', '/api/actions/a/approve', { command: changed })).body.approved, true);
   assert.equal((await req('POST', '/api/actions/a/run', {})).status, 200);
   assert.ok(existsSync(marker2));
+});
+
+test('an action with bar: false is listed off the tab bar and still runs', async () => {
+  writeConfig('actions.json', [{ id: 'w', title: 'W', command: 'echo widget', bar: false }]);
+  register();
+  const def = (await req<ActionDef[]>('GET', '/api/actions')).body.find((a) => a.id === 'w')!;
+  assert.equal(def.bar, false);
+  await req('POST', '/api/actions/w/approve', { command: 'echo widget' });
+  assert.match((await req<{ output: string }>('POST', '/api/actions/w/run', {})).body.output, /widget/);
 });
 
 test('no endpoint runs a command sent by the browser', async () => {
@@ -564,17 +574,13 @@ test('a widget view is its own file: served only once approved, a changed file w
 test('profile: validated, stored, read by sessions; setup defaults and saves', async () => {
   writeConfig('settings.json', { ides: { scannedAt: 1, list: [] } }); // no IDE scan in a test
   register();
-  const dir = join(kit.base, 'projects');
-  mkdirSync(dir);
   const fresh = await req<SettingsView>('GET', '/api/settings');
   assert.equal(fresh.body.profile, null);
   assert.deepEqual(fresh.body.setup, { step: 'checks', completedAt: null, tabId: null });
   assert.equal(kit.ctx.settings!.profile(), null);
 
-  const good = { name: 'Ann', language: 'de', projectsDir: dir, questionLevel: 'thorough' };
+  const good = { name: 'Ann', language: 'de', questionLevel: 'thorough' };
   assert.equal((await req('PUT', '/api/settings/profile', { name: 'Ann' })).status, 400, 'the first profile needs every field');
-  assert.equal((await req('PUT', '/api/settings/profile', { ...good, projectsDir: 'projects' })).status, 400, 'relative projectsDir');
-  assert.equal((await req('PUT', '/api/settings/profile', { ...good, projectsDir: join(kit.base, 'missing') })).status, 400, 'missing projectsDir');
   assert.equal((await req('PUT', '/api/settings/profile', { ...good, name: '' })).status, 400);
   assert.equal((await req('PUT', '/api/settings/profile', { ...good, name: 'x'.repeat(61) })).status, 400);
   assert.equal((await req('PUT', '/api/settings/profile', { ...good, name: 'a\nb' })).status, 400, 'no control characters');
@@ -589,13 +595,13 @@ test('profile: validated, stored, read by sessions; setup defaults and saves', a
   assert.deepEqual(renamed.body.profile, { ...good, name: 'Anna' }, 'later a patch is enough');
   assert.deepEqual(kit.ctx.settings!.profile(), { ...good, name: 'Anna' });
   assert.equal((await req<SettingsView>('PUT', '/api/settings/profile', { name: '  Anna  ' })).body.profile?.name, 'Anna', 'stored trimmed');
-  rmSync(dir, { recursive: true });
-  const moved = await req<SettingsView>('PUT', '/api/settings/profile', { name: 'Ann' });
-  assert.equal(moved.status, 200, 'a patch without projectsDir does not check the folder on disk');
-  assert.equal((await req('PUT', '/api/settings/profile', { projectsDir: dir })).status, 400, 'a patch with it does');
+  const old = await req<SettingsView>('PUT', '/api/settings/profile', { name: 'Ann', projectsDir: 'relative' });
+  assert.equal(old.status, 200, 'the removed projectsDir key is ignored');
+  assert.deepEqual(old.body.profile, { ...good, name: 'Ann' }, 'and not stored');
   writeConfig('settings.json', { ...JSON.parse(readFileSync(join(kit.paths.config, 'settings.json'), 'utf8')), profile: { ...good, name: 'a\u0007b' } });
   assert.equal(kit.ctx.settings!.profile(), null, 'a stored name with control characters does not fit');
-  writeConfig('settings.json', { ...JSON.parse(readFileSync(join(kit.paths.config, 'settings.json'), 'utf8')), profile: { ...good, name: 'Anna' } });
+  writeConfig('settings.json', { ...JSON.parse(readFileSync(join(kit.paths.config, 'settings.json'), 'utf8')), profile: { ...good, name: 'Anna', projectsDir: '/old' } });
+  assert.deepEqual(kit.ctx.settings!.profile(), { ...good, name: 'Anna' }, 'a profile saved by an older version still reads');
 
   kit.ctx.settings!.saveSetup({ step: 'onboarding', tabId: 't1' });
   kit.ctx.settings!.saveSetup({ completedAt: 5 });

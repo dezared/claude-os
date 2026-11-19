@@ -42,7 +42,7 @@ export function RemoveProjectDialog({ projectKey, onClose }: { projectKey: strin
           return (
             <div className="flex flex-col gap-3 text-[13px]">
               <div className="flex items-start gap-2 rounded-lg border border-[#c2410c]/60 bg-[#c2410c]/10 p-3 text-soft">
-                <TriangleAlert size={15} className="mt-0.5 flex-none text-[#f97316]" />
+                <TriangleAlert size={15} className="mt-0.5 flex-none text-c-orange" />
                 <p className="wrap-anywhere">{t('remove.lead', { name: p.name, root: p.root })}</p>
               </div>
               {p.items.length === 0 ? (
@@ -50,13 +50,13 @@ export function RemoveProjectDialog({ projectKey, onClose }: { projectKey: strin
               ) : (
                 <ul className="flex flex-col gap-2">
                   {p.items.map((i) => (
-                    <li key={i.path} className="rounded-lg bg-white/[.035] px-3 py-2">
+                    <li key={i.path} className="rounded-lg bg-fg/[.035] px-3 py-2">
                       <div className="flex items-baseline justify-between gap-3">
                         <span className="text-soft">{t(kindKey[i.kind])}</span>
                         <span className="flex-none text-xs text-muted">{t('remove.files', { n: fmtInt(i.files) })} · {fmtSize(i.bytes)}</span>
                       </div>
                       <div className="selectable mt-0.5 font-mono text-[11.5px] wrap-anywhere text-dim">{i.path}</div>
-                      {i.skipped && <div className="mt-0.5 text-xs text-[#f97316]">{i.skipped === 'shared_dir' ? t('remove.skipShared') : t('remove.skipSource')}</div>}
+                      {i.skipped && <div className="mt-0.5 text-xs text-c-orange">{i.skipped === 'shared_dir' ? t('remove.skipShared') : t('remove.skipSource')}</div>}
                     </li>
                   ))}
                 </ul>
@@ -70,7 +70,7 @@ export function RemoveProjectDialog({ projectKey, onClose }: { projectKey: strin
                 <li className="wrap-anywhere">{t('remove.trash', { path: p.trash })}</li>
               </ul>
               {p.liveCount > 0 ? (
-                <p role="alert" className="text-[#f97316]">{t('remove.live', { n: fmtInt(p.liveCount) })}</p>
+                <p role="alert" className="text-c-orange">{t('remove.live', { n: fmtInt(p.liveCount) })}</p>
               ) : (
                 <label className="flex flex-col gap-1">
                   <span className="text-xs text-muted">{t('remove.typeName', { name: p.name })}</span>

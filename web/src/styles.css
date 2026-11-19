@@ -1,5 +1,9 @@
 @import 'tailwindcss';
 
+/* A one-off colour for the light theme beside the dark one: `light:text-emerald-700`. Repeated colours are tokens instead. */
+/* Home in the light theme keeps dark scopes (clear glass over space, what stands on the sky): `light:` does not reach into them. */
+@custom-variant light (&:where([data-theme='light'], [data-theme='light'] *):not(:where(.glass, .glass *, .glass-strong, .glass-strong *, .on-dark, .on-dark *, .u-on-sky, .u-on-sky *, body.on-home .titlebar, body.on-home .titlebar *, body.on-home .popover, body.on-home .popover *)));
+
 @theme {
   --color-bg: #09090b;
   --color-card: #101014;
@@ -18,6 +22,21 @@
   --color-ok: #5fb98a;
   --color-warn: #e0b34f;
   --color-bad: #e5695f;
+  --color-panel: #141418;
+  --color-panel-deep: #0e0e12;
+  --color-well: rgba(0, 0, 0, 0.3);
+  --color-banner: #2a170f;
+  /* Data hues: pastel on the dark theme, deepened on the light one. */
+  --color-c-blue: #8da9c9;
+  --color-c-green: #8fb8a0;
+  --color-c-gold: #e6c07b;
+  --color-c-red: #e5867a;
+  --color-c-cyan: #7fd4ff;
+  --color-c-orange: #f97316;
+  --color-c-violet: #c3aedb;
+  --color-c-diff-del: #e08b7a;
+  --color-c-diff-add: #8fc99a;
+  --color-c-service: #6fa8dc;
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
   --breakpoint-app: 1280px;
@@ -258,6 +277,10 @@ a {
   will-change: transform;
   transform-origin: 0 100%;
   transition: opacity 120ms ease, visibility 0s;
+  /* Enters by fading where it stands: its place is a transform the map writes, never animated from the corner. */
+  @starting-style {
+    opacity: 0;
+  }
   max-width: 320px;
   padding: 7px 11px;
   border-radius: 10px;
@@ -436,6 +459,39 @@ body.on-home > :not(#root) {
   background-color: currentColor;
   mask: center / contain no-repeat;
 }
+/* The tile of a project, folder or plugin icon (IconTile.tsx): every glyph at 68% of the tile, so strokes match at any size. */
+.icon-tile {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 28%;
+  color: var(--ink);
+  background: color-mix(in oklab, var(--ink) 18%, transparent);
+  line-height: 1;
+  transition:
+    opacity 160ms var(--ease-ui),
+    color 160ms var(--ease-ui),
+    background-color 160ms var(--ease-ui);
+}
+.icon-tile[data-dim] {
+  opacity: 0.7;
+}
+.icon-tile > svg,
+.icon-tile > img,
+.icon-tile > .icon-glyph {
+  display: block;
+  width: 68%;
+  height: 68%;
+}
+.icon-tile > b {
+  font-weight: 650;
+}
+.icon-glyph {
+  background-color: currentColor;
+  mask: center / contain no-repeat;
+}
 /* Always there: the arrow is also the state, folded or open. */
 .widget-toggle {
   color: var(--color-dim);
@@ -444,14 +500,6 @@ body.on-home > :not(#root) {
 .widget-toggle:hover,
 .widget-toggle:focus-visible {
   color: var(--color-fg);
-}
-.widget-dev {
-  opacity: 0;
-  transition: opacity 150ms var(--ease-ui);
-}
-.home-widget:hover .widget-dev,
-.home-widget:focus-within .widget-dev {
-  opacity: 1;
 }
 .md.widget-desc {
   flex: none;
@@ -661,7 +709,6 @@ body.widget-dragging * {
 @media (prefers-reduced-motion: reduce) {
   .home-widget,
   .widget-toggle,
-  .widget-dev,
   .widget-body,
   .home-widget.is-collapsed .widget-body,
   .home-widget.is-bare .widget-head,
@@ -748,7 +795,8 @@ body.widget-dragging * {
   padding: 0;
 }
 
-/* Screens: a sheet of glass over the still universe. Work tabs sit on a calm, nearly solid base: reading comes first. */
+/* Screens: a sheet of glass over the still universe. Work tabs sit on a calm, nearly solid base: reading comes first.
+   The same gap on every side, the top one too: the sheet floats over the dark rather than running its rounding into the bar. */
 .sheet {
   position: relative;
   display: flex;
@@ -756,7 +804,7 @@ body.widget-dragging * {
   flex: 1;
   flex-direction: column;
   overflow: hidden;
-  margin: 0 8px 8px;
+  margin: 8px;
   border-radius: 14px;
   background: rgba(11, 11, 14, 0.56);
   -webkit-backdrop-filter: blur(22px) saturate(1.5) brightness(0.7);
@@ -910,7 +958,7 @@ body.widget-dragging * {
   height: 32px;
   border-radius: 9px;
   scroll-margin-inline: 32px; /* EDGE_ROOM in useTabStrip.ts: a tab reached with the keyboard stops clear of the fade */
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
 }
 .tab-pill.is-selected {
   background: rgba(255, 255, 255, 0.1);
@@ -987,6 +1035,183 @@ body.widget-dragging * {
     transform: translateX(100%);
   }
 }
+.note-panel.is-leaving {
+  transform: translateX(calc(100% + 8px));
+  pointer-events: none;
+}
+
+/* ---------- Surfaces that leave ---------- */
+/* Radix keeps a closing dialog or popover mounted while an animation runs on data-state="closed": these are those exits. */
+@keyframes exit-fade {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes exit-pop {
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes exit-dialog {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+.enter-overlay[data-state='closed'] {
+  animation: exit-fade 140ms ease-in forwards;
+}
+.enter-pop[data-state='closed'] {
+  animation: exit-pop 120ms ease-in forwards;
+}
+.enter-dialog[data-state='closed'] {
+  animation: exit-dialog 140ms ease-in forwards;
+}
+/* The same surfaces kept mounted by usePresence for their exit. */
+.enter-fade.is-leaving {
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+}
+.enter-pop.is-leaving {
+  opacity: 0;
+  transform: scale(0.97);
+  pointer-events: none;
+}
+/* A side panel that opens slides in from its own edge; the column beside it takes its new width at once. */
+.slide-in-start,
+.slide-in-end {
+  transition:
+    opacity 200ms var(--ease-drawer),
+    translate 200ms var(--ease-drawer);
+}
+.slide-in-start {
+  @starting-style {
+    opacity: 0;
+    translate: -12px 0;
+  }
+}
+.slide-in-end {
+  @starting-style {
+    opacity: 0;
+    translate: 12px 0;
+  }
+}
+/* The copy that fades out in place of something already unmounted (lib/flip.ts): it does not replay its own entrance. */
+.is-ghost,
+.is-ghost * {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Small things that come and go: a badge, an icon, a label. usePresence keeps them for .is-leaving. */
+.motion-pop {
+  transition:
+    opacity 160ms var(--ease-ui),
+    scale 160ms var(--ease-ui);
+  @starting-style {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+.motion-pop.is-leaving {
+  opacity: 0;
+  scale: 0.6;
+}
+.motion-fade {
+  transition:
+    opacity 160ms var(--ease-ui),
+    translate 160ms var(--ease-ui);
+  @starting-style {
+    opacity: 0;
+    translate: 0 3px;
+  }
+}
+.motion-fade.is-leaving {
+  opacity: 0;
+  translate: 0 -3px;
+}
+/* A part that unfolds to its own height and folds back (grid-template-rows: no height to measure, no layout per frame of the content). */
+.motion-fold {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  transition:
+    grid-template-rows 220ms var(--ease-drawer),
+    opacity 160ms var(--ease-ui);
+  @starting-style {
+    grid-template-rows: minmax(0, 0fr);
+    opacity: 0;
+  }
+}
+.motion-fold.is-leaving {
+  grid-template-rows: minmax(0, 0fr);
+  opacity: 0;
+}
+.motion-fold > * {
+  min-height: 0;
+  overflow: clip;
+  overflow-clip-margin: 6px; /* rows that reach past their column (a hover background) are not cut */
+}
+/* A bar of the kit charts (KitCharts.tsx): grows from its baseline when it appears, then to each new value; scale, no layout. */
+.kit-bar {
+  transform-origin: bottom;
+  scale: 1 var(--kit-bar, 1); /* a variable, not an inline scale: an inline value would also be the starting one */
+  transition: scale 320ms var(--ease-ui);
+  @starting-style {
+    scale: 1 0;
+  }
+}
+/* A message, a tool group or a card that arrives in an open conversation (Transcript.tsx useArrived). */
+.msg-item.is-new {
+  transition:
+    opacity 200ms var(--ease-ui),
+    translate 200ms var(--ease-ui);
+  @starting-style {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+/* Colour and ring of a status dot cross-fade from one state to the next; so does the tint of a status pill. */
+.status-pill,
+.status-dot {
+  transition:
+    background-color 200ms var(--ease-ui),
+    box-shadow 200ms var(--ease-ui),
+    color 200ms var(--ease-ui);
+}
+
+/* A number rolling to its next value (Roll.tsx): both stand in one cell, the old one leaves as the new one comes. */
+.roll {
+  display: inline-grid;
+  overflow: clip;
+  vertical-align: bottom;
+}
+.roll > * {
+  grid-area: 1 / 1;
+}
+@keyframes roll-in {
+  from {
+    opacity: 0;
+    translate: 0 var(--roll-from, 0.7em);
+  }
+}
+@keyframes roll-out {
+  to {
+    opacity: 0;
+    translate: 0 var(--roll-to, -0.7em);
+  }
+}
+.roll.is-down {
+  --roll-from: -0.7em;
+  --roll-to: 0.7em;
+}
+.roll-in {
+  animation: roll-in 180ms var(--ease-ui) both;
+}
+.roll-out {
+  animation: roll-out 160ms ease-in both;
+}
 
 /* Pulsing dot for sessions that are working. Opacity only, stops with reduced motion. */
 @keyframes live-pulse {
@@ -996,6 +1221,80 @@ body.widget-dragging * {
 }
 .dot-working {
   animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+/* The verb of a running turn: a highlight sweeps across the text. Waiting on a tool sweeps slower, in the warn colour. */
+@keyframes text-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+.text-shimmer {
+  --shimmer-base: var(--color-muted);
+  --shimmer-hi: var(--color-accent);
+  background: linear-gradient(90deg, var(--shimmer-base) 35%, var(--shimmer-hi) 50%, var(--shimmer-base) 65%) 0 0 / 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: text-shimmer 2s linear infinite;
+}
+.text-shimmer.is-waiting {
+  --shimmer-hi: var(--color-warn);
+  animation-duration: 3.6s;
+}
+/* An hourglass that turns over now and then: alive, but clearly not writing. */
+@keyframes hourglass-turn {
+  0%,
+  70% {
+    transform: rotate(0);
+  }
+  100% {
+    transform: rotate(180deg);
+  }
+}
+.hourglass-turn {
+  animation: hourglass-turn 2.4s var(--ease-ui) infinite;
+}
+
+/* Subagents at work: two rings ripple out of a status dot like rings on water, white first, then the dot's own colour
+   (currentColor). On paper the first ring is the line colour: white would not show. */
+@keyframes agent-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.95;
+    border-color: var(--ripple-from);
+  }
+  40% {
+    border-color: currentColor;
+  }
+  100% {
+    transform: scale(3.4);
+    opacity: 0;
+    border-color: currentColor;
+  }
+}
+.dot-agents {
+  --ripple-from: #fff;
+  position: relative;
+  @variant light {
+    --ripple-from: var(--color-line);
+  }
+}
+.dot-agents::before,
+.dot-agents::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid currentColor;
+  border-radius: 9999px;
+  pointer-events: none;
+  animation: agent-ripple 2.4s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+}
+.dot-agents::after {
+  animation-delay: 1.2s;
 }
 
 @keyframes indet {
@@ -1073,9 +1372,46 @@ body.widget-dragging * {
   .press:active:not(:disabled) {
     transform: none;
   }
-  .dot-working,
-  .progress-indet {
+  .motion-pop,
+  .motion-fade,
+  .motion-fold,
+  .kit-bar,
+  .icon-tile,
+  .slide-in-start,
+  .slide-in-end,
+  .msg-item.is-new,
+  .status-pill,
+  .status-dot {
+    transition: none;
+  }
+  .enter-overlay[data-state='closed'],
+  .enter-pop[data-state='closed'],
+  .enter-dialog[data-state='closed'],
+  .roll-in,
+  .roll-out {
     animation: none;
+  }
+  .roll-out {
+    display: none;
+  }
+  .dot-working,
+  .progress-indet,
+  .hourglass-turn {
+    animation: none;
+  }
+  .text-shimmer {
+    animation: none;
+    background: none;
+    color: var(--color-muted);
+  }
+  /* A still ring keeps "subagents at work" readable without motion. */
+  .dot-agents::before {
+    animation: none;
+    transform: scale(2.2);
+    opacity: 0.7;
+  }
+  .dot-agents::after {
+    display: none;
   }
   .spinner {
     animation-duration: 1.6s;
@@ -1407,8 +1743,487 @@ a.file-link:hover,
   }
 }
 
+/* The terminal's 16 base colours (TerminalText.tsx). */
+:root {
+  --ansi-0: #27272a;
+  --ansi-1: #e5766d;
+  --ansi-2: #8fc99a;
+  --ansi-3: #d9bd7f;
+  --ansi-4: #9dbbdc;
+  --ansi-5: #c3aedb;
+  --ansi-6: #7fc8d0;
+  --ansi-7: #d4d4d8;
+  --ansi-8: #71717a;
+  --ansi-9: #f09a92;
+  --ansi-10: #a8dcb1;
+  --ansi-11: #e8d09a;
+  --ansi-12: #b8d0ea;
+  --ansi-13: #d6c5e8;
+  --ansi-14: #9edbe2;
+  --ansi-15: #fafafa;
+}
 /* Sessions that belong to Claude OS itself: everything else in the list stays plain. */
 .session-stripe { box-shadow: inset 2px 0 0 var(--session-stripe); background: color-mix(in srgb, var(--session-stripe) 5%, transparent); }
 .session-stripe-root { --session-stripe: var(--color-accent); }
-.session-stripe-service { --session-stripe: #6fa8dc; }
+.session-stripe-service { --session-stripe: var(--color-c-service); }
 .session-stripe-os { --session-stripe: var(--color-warn); }
+
+/* ---------- Light theme ---------- */
+/* The same tokens on crisp paper. The space map on Home stays dark in every theme, so what stands right on it keeps the dark
+   theme's text (.u-on-sky, .on-dark). Panels over it are nearly solid: light glass over black space only turns grey and dull.
+   Text tokens keep at least 4.5:1 on every surface (scripts/theme-contrast.test.ts). */
+[data-theme='light'] {
+  --color-bg: #ffffff;
+  --color-card: #ffffff;
+  --color-raised: rgba(20, 20, 24, 0.07);
+  --color-line: #d9d9dc;
+  --color-line2: #ebebed;
+  --color-fg: #0c0c0e;
+  --color-soft: #1c1c20;
+  --color-muted: #3d3d44;
+  --color-dim: #56565e;
+  --color-accent: #c15f3c;
+  --color-accent-hover: #a94f2f;
+  --color-accent-deep: #8f4024;
+  --color-accent-bg: rgba(193, 95, 60, 0.12);
+  --color-on-accent: #ffffff;
+  --color-ok: #23784b;
+  --color-warn: #8a610a;
+  --color-bad: #b83a31;
+  --color-c-blue: #3567b8;
+  --color-c-green: #23864f;
+  --color-c-gold: #b07800;
+  --color-c-red: #c43d30;
+  --color-c-cyan: #1a7fae;
+  --color-c-orange: #b23c0a;
+  --color-c-violet: #6f45c4;
+  --color-c-diff-del: #a8432c;
+  --color-c-diff-add: #26703c;
+  --color-c-service: #2a64a0;
+  --color-panel: #ffffff;
+  --color-panel-deep: #f7f7f8;
+  --color-well: #ffffff;
+  --color-banner: #f9e3d7;
+  /* One radius scale for the whole light interface: 4 for small marks, 6 for controls and cards, 8 for panels. Round only dots. */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
+  --radius-3xl: 8px;
+  /* The frame of a screen (title bar, tool bars, the composer) is drawn with this heavier line; content keeps hairlines. */
+  --frame-line: 1.5px solid #c9c9cd;
+  --color-side: #f7f7f8;
+  /* The lightest a project or plugin colour may be on paper (oklch L): the pastel palette is made for the dark sky. */
+  --ink-light: 0.5;
+}
+/* Dark scopes in the light theme: what stands right on the dark sky, the clear glass on Home and the title bar over it keep the
+   dark theme's text, lines, accents and data hues, so white text and bright icons sit on space as they do in the dark theme. */
+[data-theme='light'] .u-on-sky,
+[data-theme='light'] .on-dark,
+[data-theme='light'] .glass,
+[data-theme='light'] .glass-strong,
+[data-theme='light'] body.on-home .titlebar,
+[data-theme='light'] body.on-home .popover {
+  --color-raised: rgba(255, 255, 255, 0.1);
+  --color-line: rgba(255, 255, 255, 0.16);
+  --color-line2: rgba(255, 255, 255, 0.1);
+  --color-fg: #ffffff;
+  --color-soft: #f1f1f4;
+  --color-muted: #d0d0d8;
+  --color-dim: #b0b0ba;
+  --color-accent: #e08a6d;
+  --color-accent-hover: #eca088;
+  --color-accent-deep: #d97757;
+  --color-accent-bg: rgba(224, 138, 109, 0.18);
+  --color-on-accent: #1a0d07;
+  --color-ok: #6fd09c;
+  --color-warn: #f0c35c;
+  --color-bad: #f07a70;
+  --color-c-blue: #9dbbe0;
+  --color-c-green: #96d1ad;
+  --color-c-gold: #f0c97e;
+  --color-c-red: #f0928a;
+  --color-c-cyan: #8fdcff;
+  --color-c-orange: #ff8a3d;
+  --color-c-violet: #cdb6f0;
+  --color-c-service: #8ab8e6;
+  --color-card: rgba(255, 255, 255, 0.08);
+  --color-panel: rgba(20, 20, 26, 0.7);
+  --ink-light: 1;
+  color: var(--color-fg);
+}
+/* On paper a tile's glyph takes its colour deepened to the same lightness, hue and chroma kept; the tint behind it stays light. */
+[data-theme='light'] .icon-tile {
+  color: oklch(from var(--ink) min(l, var(--ink-light)) c h);
+  background: color-mix(in oklab, var(--ink) 22%, transparent);
+}
+/* An accent picked in Settings (web/src/lib/accent.ts): its tokens per theme come from code, fitted to 4.5:1 there. The dark
+   scopes of the light theme take the dark set, as they do with the shipped accent. */
+html[data-accent],
+html[data-accent][data-theme='light'] :is(.u-on-sky, .on-dark, .glass, .glass-strong),
+html[data-accent][data-theme='light'] body.on-home :is(.titlebar, .popover) {
+  --color-accent: var(--pick-dark-accent);
+  --color-accent-hover: var(--pick-dark-hover);
+  --color-accent-deep: var(--pick-dark-deep);
+  --color-accent-bg: var(--pick-dark-bg);
+  --color-on-accent: var(--pick-dark-on);
+}
+html[data-accent][data-theme='light'] {
+  --color-accent: var(--pick-light-accent);
+  --color-accent-hover: var(--pick-light-hover);
+  --color-accent-deep: var(--pick-light-deep);
+  --color-accent-bg: var(--pick-light-bg);
+  --color-on-accent: var(--pick-light-on);
+}
+html[data-accent][data-theme='light'] :is(.u-on-sky, .on-dark, .glass, .glass-strong) {
+  --color-accent-bg: var(--pick-sky-bg);
+}
+/* Quiet icons on paper sit a step darker than quiet text: a 13px stroke in the text grey reads as missing. */
+[data-theme='light'] svg.lucide.text-dim {
+  color: var(--color-muted);
+}
+[data-theme='light'] ::selection {
+  background: rgba(193, 95, 60, 0.24);
+}
+[data-theme='light'] * {
+  scrollbar-color: rgba(28, 25, 23, 0.28) transparent;
+}
+[data-theme='light'] .glass-reading,
+[data-theme='light'] .glass-solid,
+[data-theme='light'] .popover {
+  --color-muted: #3d3d44;
+  --color-dim: #56565e;
+  box-shadow:
+    inset 0 0 0 1px rgba(20, 20, 24, 0.1),
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 8px 28px rgba(0, 0, 0, 0.32);
+}
+/* Clear liquid glass on Home: mostly see-through, a thin white sheen over a light smoke so white text holds over the galaxy core,
+   a bright rim and a specular top edge. One backdrop filter and static gradients and shadows: nothing animates or samples twice. */
+[data-theme='light'] .glass,
+[data-theme='light'] .glass-strong,
+[data-theme='light'] body.on-home .titlebar {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(255, 255, 255, 0.11) 100%),
+    rgba(16, 16, 24, 0.26);
+  -webkit-backdrop-filter: blur(22px) saturate(1.9) brightness(1.08);
+  backdrop-filter: blur(22px) saturate(1.9) brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.11),
+    0 10px 30px rgba(0, 0, 0, 0.35);
+}
+[data-theme='light'] .glass-strong {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(255, 255, 255, 0.11) 100%),
+    rgba(16, 16, 24, 0.5);
+}
+[data-theme='light'] body.on-home .titlebar {
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.18);
+}
+/* The panes get soft corners and a quiet rim: a hairline ring and a faint top edge. One blur per pane and nothing else: a
+   backdrop SVG filter (a lens) cost the map 3 frames a second, since every pane re-runs it on each frame of the moving sky. */
+[data-theme='light'] .glass:not(.rounded-full),
+[data-theme='light'] .glass-strong:not(.rounded-full) {
+  border-radius: 16px;
+}
+[data-theme='light'] .glass,
+[data-theme='light'] .glass-strong {
+  --glass-smoke: rgba(14, 14, 22, 0.24);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.03) 42%, rgba(255, 255, 255, 0.06)),
+    linear-gradient(var(--glass-smoke), var(--glass-smoke));
+  -webkit-backdrop-filter: blur(12px) saturate(1.9) brightness(1.1);
+  backdrop-filter: blur(12px) saturate(1.9) brightness(1.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.11),
+    0 10px 30px rgba(0, 0, 0, 0.35);
+}
+[data-theme='light'] .glass-strong {
+  --glass-smoke: rgba(14, 14, 22, 0.44);
+}
+[data-theme='light'] body.on-home .titlebar .tab-pill.is-selected {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+[data-theme='light'] .glass-reading {
+  background: rgba(252, 252, 251, 0.98);
+}
+[data-theme='light'] .glass-solid {
+  background: #fbfbfa;
+}
+/* Without a GPU to spare (glass-lite, set by the map) the pane is solid: the same look without the blur. */
+[data-theme='light'].glass-lite .glass,
+[data-theme='light'].glass-lite .glass-strong {
+  --glass-smoke: rgba(34, 34, 42, 0.94);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+[data-theme='light'].glass-lite body.on-home .titlebar {
+  background: linear-gradient(165deg, rgba(58, 58, 68, 0.94), rgba(30, 30, 38, 0.94));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+[data-theme='light'] .popover {
+  background: #ffffff;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(20, 20, 24, 0.12),
+    0 2px 6px rgba(0, 0, 0, 0.08),
+    0 16px 40px rgba(0, 0, 0, 0.2);
+}
+/* Over the sky a menu or a dialog is the same clear glass as the panels, a little denser for reading. */
+[data-theme='light'] body.on-home .popover {
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03) 42%, rgba(255, 255, 255, 0.06)),
+    rgba(18, 18, 26, 0.62);
+  -webkit-backdrop-filter: blur(20px) saturate(1.7);
+  backdrop-filter: blur(20px) saturate(1.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.11),
+    0 18px 50px rgba(0, 0, 0, 0.5);
+}
+[data-theme='light'].glass-lite body.on-home .popover {
+  background: rgba(30, 30, 38, 0.97);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+[data-theme='light'] .u-tip {
+  background: rgba(253, 252, 250, 0.96);
+  box-shadow: inset 0 0 0 1px rgba(28, 25, 23, 0.12), 0 14px 34px rgba(0, 0, 0, 0.4);
+}
+[data-theme='light'] .widget-ghost {
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+}
+[data-theme='light'] .widget-ghost.glass,
+[data-theme='light'] .widget-ghost .glass {
+  background: rgb(250, 249, 246);
+}
+[data-theme='light'] .home-zone span {
+  background: rgba(253, 252, 250, 0.92);
+}
+/* Screens and work tabs: white paper framed by the dark sky, compact like a desktop tool. Side columns sit one step greyer. */
+[data-theme='light'] .sheet {
+  border-radius: 8px;
+  background: var(--color-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: inset 0 0 0 1px #c9c9cd;
+}
+[data-theme='light'] .work-base {
+  background: var(--color-bg);
+  box-shadow: none;
+}
+/* A separate window has no sky behind it: the page under its content is paper, not the black of the map. */
+[data-theme='light'] .popout-window {
+  background: var(--color-bg);
+}
+[data-theme='light'] .work-base aside,
+[data-theme='light'] .work-base div:has(> nav[aria-label]) {
+  background: var(--color-side);
+}
+[data-theme='light'] .work-bar,
+[data-theme='light'] .sheet-bar {
+  border-bottom: var(--frame-line);
+}
+[data-theme='light'] .composer-solid {
+  border: var(--frame-line);
+  background: #ffffff;
+  box-shadow: none;
+}
+[data-theme='light'] .sheet-bar {
+  background: rgba(255, 255, 255, 0.96);
+}
+/* The title bar is the same clear glass on every screen; a paper layer over it fades in off Home. Opacity is a compositor job,
+   so the move between Home and a screen stays at the display's rate. */
+[data-theme='light'] .titlebar {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(255, 255, 255, 0.11) 100%),
+    rgba(16, 16, 24, 0.26);
+  -webkit-backdrop-filter: blur(22px) saturate(1.9) brightness(1.08);
+  backdrop-filter: blur(22px) saturate(1.9) brightness(1.08);
+  box-shadow: inset 0 -1.5px 0 #c9c9cd;
+}
+[data-theme='light'] .titlebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--color-side);
+  pointer-events: none;
+}
+[data-theme='light'] body.on-home .titlebar::before {
+  opacity: 0;
+}
+[data-theme='light'] .tab-pill {
+  border-radius: 6px;
+}
+[data-theme='light'] .tab-pill.is-selected {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px #c9c9cd;
+}
+/* Arbitrary radii in the components follow the same scale. */
+[data-theme='light'] .rounded-\[10px\],
+[data-theme='light'] .rounded-\[11px\] {
+  border-radius: 6px;
+}
+[data-theme='light'] .rounded-t-\[11px\] {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+[data-theme='light'] .ui-tooltip,
+[data-theme='light'] .u-tip {
+  border-radius: 6px;
+}
+[data-theme='light'] .home-zone {
+  border-radius: 8px;
+}
+/* The chat reads denser: smaller type, tighter blocks, the user's message a plain grey box. */
+[data-theme='light'] .work-base .md {
+  font-size: 13px;
+  line-height: 1.55;
+}
+[data-theme='light'] .work-base .md pre {
+  padding: 7px 10px;
+}
+[data-theme='light'] .work-base .selectable.ml-auto {
+  padding: 6px 10px;
+  background: #f0f0f2;
+}
+[data-theme='light'] .skeleton {
+  background: rgba(24, 24, 27, 0.07);
+}
+[data-theme='light'] .md code,
+[data-theme='light'] .ui-tooltip kbd {
+  background: rgba(24, 24, 27, 0.06);
+}
+[data-theme='light'] .ui-tooltip {
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: inset 0 0 0 1px rgba(24, 24, 27, 0.1), 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+[data-theme='light'] .hljs-keyword,
+[data-theme='light'] .hljs-selector-tag,
+[data-theme='light'] .hljs-literal,
+[data-theme='light'] .hljs-built_in {
+  color: #b5502c;
+}
+[data-theme='light'] .hljs-string,
+[data-theme='light'] .hljs-regexp,
+[data-theme='light'] .hljs-addition,
+[data-theme='light'] .hljs-attribute {
+  color: #3f7a32;
+}
+[data-theme='light'] .hljs-number,
+[data-theme='light'] .hljs-symbol,
+[data-theme='light'] .hljs-bullet {
+  color: #946a0c;
+}
+[data-theme='light'] .hljs-title,
+[data-theme='light'] .hljs-section,
+[data-theme='light'] .hljs-name,
+[data-theme='light'] .hljs-selector-class,
+[data-theme='light'] .hljs-selector-id {
+  color: #2f62a0;
+}
+[data-theme='light'] .hljs-attr,
+[data-theme='light'] .hljs-variable,
+[data-theme='light'] .hljs-template-variable,
+[data-theme='light'] .hljs-type,
+[data-theme='light'] .hljs-params {
+  color: #7a4fae;
+}
+[data-theme='light'] .hljs-deletion {
+  color: #b54a32;
+}
+[data-theme='light'] .tool-badge { --tint: 100, 100, 110; }
+[data-theme='light'] .tool-badge[data-kind='read'] { --tint: 47, 98, 160; }
+[data-theme='light'] .tool-badge[data-kind='edit'] { --tint: 181, 80, 44; }
+[data-theme='light'] .tool-badge[data-kind='bash'] { --tint: 47, 125, 69; }
+[data-theme='light'] .tool-badge[data-kind='search'] { --tint: 122, 79, 174; }
+[data-theme='light'] .tool-badge[data-kind='web'] { --tint: 26, 122, 138; }
+[data-theme='light'] .tool-badge[data-kind='skill'] { --tint: 148, 106, 12; }
+[data-theme='light'] .tool-badge[data-kind='plan'] { --tint: 110, 110, 60; }
+[data-theme='light'] .tool-badge[data-kind='mcp'] { --tint: 168, 64, 120; }
+[data-theme='light'] .term-badge { --tint: 47, 125, 69; }
+[data-theme='light'] .term-badge[data-tone='warn'] { --tint: 148, 106, 12; }
+[data-theme='light'] .term-badge[data-tone='bad'] { --tint: 196, 67, 58; }
+[data-theme='light'] {
+  --ansi-0: #3f3f46;
+  --ansi-1: #c4433a;
+  --ansi-2: #2f7d45;
+  --ansi-3: #946a0c;
+  --ansi-4: #2f62a0;
+  --ansi-5: #7a4fae;
+  --ansi-6: #1a7a8a;
+  --ansi-7: #52525b;
+  --ansi-8: #71717a;
+  --ansi-9: #d4554b;
+  --ansi-10: #3d8f55;
+  --ansi-11: #a87a12;
+  --ansi-12: #3f75b8;
+  --ansi-13: #8c5fc2;
+  --ansi-14: #2a8fa0;
+  --ansi-15: #18181b;
+}
+
+/* ---------- Moving between Home and a screen ---------- */
+/* lib/viewTransition.ts runs the move as a view transition: the old view is a snapshot, the new one is live, both composited.
+   The title bar is its own group, so it cross-fades in place while the content under it eases in. */
+.titlebar {
+  view-transition-name: titlebar;
+}
+::view-transition-group(*) {
+  animation-duration: 340ms;
+  animation-timing-function: var(--ease-ui);
+}
+::view-transition-old(root) {
+  animation: 340ms var(--ease-ui) both vt-out;
+}
+::view-transition-new(root) {
+  animation: 340ms var(--ease-ui) both vt-in;
+}
+::view-transition-old(titlebar),
+::view-transition-new(titlebar) {
+  animation-duration: 340ms;
+  animation-timing-function: var(--ease-ui);
+}
+@keyframes vt-out {
+  to {
+    opacity: 0;
+    transform: scale(1.012);
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    transform: scale(0.988);
+  }
+}
+
+/* ---------- Storage panel ---------- */
+/* Its small bars grow from their baseline when they appear: weeks upwards, the type split from the left. */
+.storage-bar-y {
+  transform-origin: bottom;
+  animation: storage-grow-y 360ms var(--ease-ui) both;
+}
+.storage-bar-x {
+  transform-origin: left;
+  animation: storage-grow-x 360ms var(--ease-ui) both;
+}
+@keyframes storage-grow-y {
+  from { transform: scaleY(0); }
+}
+@keyframes storage-grow-x {
+  from { transform: scaleX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .storage-bar-y,
+  .storage-bar-x {
+    animation: none;
+  }
+}

@@ -1,8 +1,9 @@
 import type { ClientMessage, NewTabRequest, OsSource, RespondRequest, SendRequest, SessionInfo, Tab } from '../../shared/contract.ts';
 import type { Ctx } from '../context.ts';
-import { runBtw } from './btw.ts';
+import { streamBtw, type BtwBody } from './btw.ts';
 import { completeFiles } from './files.ts';
 import { Chat } from './manager.ts';
+import { watchRootIdle } from './rootIdle.ts';
 import { listActiveSubagents, readSubagent } from './subagents.ts';
 
 type TabParams = { Params: { id: string } };
@@ -12,6 +13,8 @@ export function registerChat(ctx: Ctx): void {
   const chat = new Chat(ctx);
   ctx.chat = chat;
   const { app } = ctx;
+  const stopRootIdle = watchRootIdle(chat);
+  app.addHook('onClose', async () => stopRootIdle());
 
   app.get('/api/tabs', async () => chat.list());
   app.post<{ Body: NewTabRequest }>('/api/tabs', async (req) => {
@@ -68,22 +71,9 @@ export function registerChat(ctx: Ctx): void {
     const { id } = req.params;
     return activeSubagents(id, ctx.journal.listSessions().find((s) => s.id === id), chat.list());
   });
-  // A stream of lines, not chat events: nothing of this reaches the tab's buffer. The child lives as long as the request.
-  app.post<TabParams & { Body: { question?: unknown } | null }>('/api/tabs/:id/btw', async (req, reply) => {
-    const { row } = chat.get(req.params.id);
-    const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
-    if (!question) return reply.code(400).send({ error: 'Empty question', key: 'emptyQuestion' });
-    reply.hijack();
-    const out = reply.raw;
-    out.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
-    const stop = runBtw(ctx, row, question, (e) => {
-      if (out.writableEnded) return;
-      out.write(`${JSON.stringify(e)}\n`);
-      if ('done' in e) out.end();
-    });
-    out.once('close', stop);
-    return reply;
-  });
+  app.post<TabParams & BtwBody>('/api/tabs/:id/btw', async (req, reply) => streamBtw(ctx, chat.get(req.params.id).row, req.body, reply));
+  // Outside a work tab: the root folder, no conversation to copy, so no project's context either.
+  app.post<BtwBody>('/api/btw', async (req, reply) => streamBtw(ctx, { kind: 'root', cwd: ctx.paths.root, sessionId: null, model: null }, req.body, reply));
   app.post<TabParams & { Body: { title?: unknown } | null }>('/api/tabs/:id/branch', async (req) =>
     chat.branch(req.params.id, typeof req.body?.title === 'string' ? req.body.title.trim() : undefined));
   app.get<{ Params: { id: string; key: string } }>('/api/sessions/:id/subagents/:key', async (req, reply) => {

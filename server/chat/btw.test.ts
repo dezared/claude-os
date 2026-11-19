@@ -4,9 +4,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import type { BtwEvent, Tab, TerminalPreview } from '../../shared/contract.ts';
+import type { BtwEvent, BtwTurn } from '../../shared/btw.ts';
+import type { Tab, TerminalPreview } from '../../shared/contract.ts';
 import { startServer, waitUntil, type TestServer } from './fixtures/harness.ts';
-import { btwArgs } from './btw.ts';
+import { btwArgs, sideQuestion } from './btw.ts';
 
 const alive = (pid: number) => {
   try { process.kill(pid, 0); return true; } catch { return false; }
@@ -36,9 +37,10 @@ function journalOf(srv: TestServer, cwd: string, id: string) {
   return join(srv.configDir, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${id}.jsonl`);
 }
 
-async function ask(srv: TestServer, tabId: string, question: string, signal?: AbortSignal) {
+async function ask(srv: TestServer, tabId: string | null, question: string, signal?: AbortSignal, history?: BtwTurn[]) {
   const cookie = `claude_os=${readFileSync(join(srv.dataDir, 'token'), 'utf8').trim()}`;
-  return fetch(`http://127.0.0.1:${srv.port}/api/tabs/${tabId}/btw`, { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ question }), signal });
+  const path = tabId ? `/api/tabs/${tabId}/btw` : '/api/btw';
+  return fetch(`http://127.0.0.1:${srv.port}${path}`, { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ question, history }), signal });
 }
 
 async function answerOf(res: Response): Promise<{ text: string; error: string | null | undefined }> {
@@ -66,6 +68,12 @@ it('btw args carry the isolation settings', () => {
   assert.equal(settings(btwArgs(null, null, 'id')), '{"disableAllHooks":true}');
 });
 
+it('a follow-up carries the earlier side turns before the new question', () => {
+  assert.equal(sideQuestion('один', []), 'один');
+  const text = sideQuestion('и ещё?', [{ question: 'что такое X?', answer: 'X это Y.' }, { question: 'а Z?', answer: 'Z тоже.' }]);
+  assert.match(text, /^Earlier in this side thread:\n\nQuestion: что такое X\?\nAnswer: X это Y\.\n\nQuestion: а Z\?\nAnswer: Z тоже\.\n\nThe question now:\n\nи ещё\?$/);
+});
+
 describe('/btw', () => {
   let srv: TestServer;
   let workDir: string;
@@ -84,6 +92,8 @@ describe('/btw', () => {
     const sessionId = (await srv.api<Tab[]>('GET', '/api/tabs')).body.find((t) => t.id === tab.id)!.sessionId!;
     const main = spawns(srv).at(-1)!;
     const spawned = spawns(srv).length;
+    // The session id shows before the CLI writes the user line: snapshot the journal once that line is in.
+    await waitUntil(() => existsSync(journalOf(srv, workDir, sessionId)) && readFileSync(journalOf(srv, workDir, sessionId), 'utf8').includes('"SLOW"'), 'journal line');
     const journal = readFileSync(journalOf(srv, workDir, sessionId), 'utf8');
 
     for (const q of ['первый вопрос', '- второй, с дефисом']) {
@@ -95,6 +105,8 @@ describe('/btw', () => {
     const flags = prints(srv).at(-1)!.argv;
     for (const f of ['--resume', sessionId, '--fork-session', '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--tools', 'Read', '--strict-mcp-config']) assert.ok(flags.includes(f), f);
     assert.equal(flags.includes('- второй, с дефисом'), false, 'the question goes through stdin');
+    const denied = flags.slice(flags.indexOf('--disallowedTools') + 1);
+    assert.ok(denied.some((r) => r.startsWith('Read(//') && r.endsWith('/secrets/**)')), 'Read never opens the secrets');
 
     assert.equal(spawns(srv).length, spawned, 'no new tab process');
     assert.ok(alive(main.pid), 'the main process lives');
@@ -136,6 +148,33 @@ describe('/btw', () => {
     assert.equal(flags.includes('--resume'), false);
     assert.equal(flags.includes('--fork-session'), false);
     assert.equal(existsSync(join(srv.configDir, 'projects', dir.replace(/[^a-zA-Z0-9]/g, '-'))), false);
+  });
+
+  it('a follow-up forks the tab again and sends the thread so far; nothing is left behind', async () => {
+    const client = await srv.connect();
+    const tab = (await srv.api<Tab>('POST', '/api/tabs', { cwd: workDir })).body;
+    client.subscribe(tab.id);
+    await srv.api('POST', `/api/tabs/${tab.id}/send`, { text: 'привет' });
+    await client.waitEvent(tab.id, 'result');
+    const sessionId = (await srv.api<Tab[]>('GET', '/api/tabs')).body.find((t) => t.id === tab.id)!.sessionId!;
+    const first = await answerOf(await ask(srv, tab.id, 'первый'));
+    assert.equal(first.text, 'side: первый');
+    const next = await answerOf(await ask(srv, tab.id, 'второй', undefined, [{ question: 'первый', answer: first.text }, { question: 42, answer: 'bad' } as never]));
+    assert.equal(next.error, null);
+    assert.equal(next.text, `side: ${sideQuestion('второй', [{ question: 'первый', answer: 'side: первый' }])}`);
+    const flags = prints(srv).at(-1)!.argv;
+    for (const f of ['--resume', sessionId, '--fork-session', '--no-session-persistence']) assert.ok(flags.includes(f), f);
+    await client.close();
+  });
+
+  it('without a tab: runs in the root folder, resumes nothing', async () => {
+    const { text, error } = await answerOf(await ask(srv, null, 'с главной', undefined, [{ question: 'до', answer: 'ответ' }]));
+    assert.equal(error, null);
+    assert.equal(text, `plain: ${sideQuestion('с главной', [{ question: 'до', answer: 'ответ' }])}`);
+    const call = prints(srv).at(-1)! as Logged & { cwd: string };
+    assert.equal(call.cwd, join(import.meta.dirname, '../../root'));
+    assert.equal(call.argv.includes('--resume'), false);
+    assert.equal((await ask(srv, null, ' ')).status, 400);
   });
 
   it('failures reach the card; an empty question is refused', async () => {

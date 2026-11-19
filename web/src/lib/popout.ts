@@ -1,10 +1,10 @@
-// A separate window of the desktop app: the same page and session cookie, this route, nothing but one chat, the planner or the service tasks.
-export type PopoutRequest = { kind: 'tab'; id: string } | { kind: 'root' } | { kind: 'planner' } | { kind: 'service' };
+// A separate window of the desktop app: the same page and session cookie, this route, nothing but one chat, the planner, the service tasks or the side question.
+export type PopoutRequest = { kind: 'tab'; id: string } | { kind: 'root' } | { kind: 'planner' } | { kind: 'service' } | { kind: 'btw' };
 
 export function popoutRoute(): PopoutRequest | null {
   const query = new URLSearchParams(location.search);
   const kind = query.get('popout');
-  if (kind === 'root' || kind === 'planner' || kind === 'service') return { kind };
+  if (kind === 'root' || kind === 'planner' || kind === 'service' || kind === 'btw') return { kind };
   const id = query.get('id');
   return kind === 'tab' && id ? { kind, id } : null;
 }

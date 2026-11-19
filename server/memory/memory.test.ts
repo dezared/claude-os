@@ -74,6 +74,20 @@ test('graph: real links only, across - and _, unresolved counted not drawn, degr
   assert.equal(existsSync(kit.paths.vault), false, 'reading never creates the vault');
 });
 
+test('graph: a node carries its frontmatter type, tags and modified date, never the internal keys', async () => {
+  kit.write(join(memDir('-a'), 'typed.md'), '---\nname: typed\ndescription: "A typed note"\nmetadata:\n  type: feedback\n  tags:\n    - theme\n    - ui\n  originSessionId: abc-123\n  modified: 2026-11-11T12:29:26.250Z\n---\nbody');
+  kit.write(join(memDir('-a'), 'plain.md'), 'no frontmatter');
+  registerMemory(kit.ctx);
+  const { body } = await json<MemoryGraph>('GET', '/api/memory/graph');
+  const typed = body.nodes.find((n) => n.file === 'typed.md')!;
+  assert.equal(typed.type, 'feedback');
+  assert.deepEqual(typed.tags, ['theme', 'ui']);
+  assert.equal(typed.modified, Date.parse('2026-11-11T12:29:26.250Z'));
+  assert.ok(!JSON.stringify(typed).includes('originSessionId') && !JSON.stringify(typed).includes('abc-123'), 'an internal key leaked');
+  const plain = body.nodes.find((n) => n.file === 'plain.md')!;
+  assert.deepEqual([plain.type, plain.tags, plain.modified], [null, [], null]);
+});
+
 test('a link resolves inside its own project first, an ambiguous foreign link stays unresolved', async () => {
   kit.write(join(memDir('-a'), 'x.md'), '[[shared]] [[only-b]] [[twice]]');
   kit.write(join(memDir('-a'), 'shared.md'), 'a');

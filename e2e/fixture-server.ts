@@ -9,8 +9,11 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { boardRoutes } from './fixture-boards.ts';
 import { featureRoute } from './fixture-features.ts';
 import { plannerRoutes } from './fixture-planner.ts';
+import { countsOf, healthOf, listOf, overviewOf, type CatalogNote } from '../server/memory/catalog.ts';
+import type { MemoryHealth } from '../shared/memory.ts';
+import type { KitSetsReport } from '../shared/projectKit.ts';
 import type {
-  ActionDef, Analytics, ChatEvent, ClientMessage, McpServer, MemoryGraph, MemoryNode, MemoryNote, Overview, Project, ProjectStructureNode,
+  ActionDef, Analytics, ChatEvent, ClientMessage, McpServer, MemoryGraph, MemoryNode, MemoryNote, Overview, Project,
   ServerMessage, SessionInfo, Skill, Tab, TokenCounts, WidgetDef, WidgetValue, WikiRunView,
 } from '../shared/contract.ts';
 
@@ -30,6 +33,9 @@ function day(offset: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+const NOTE_TYPES = ['project', 'feedback', 'reference', 'user'];
+const NOTE_TAGS = ['theme', 'ui', 'memory', 'deploy', 'billing'];
+
 export function syntheticGraph(count: number, projects: string[]): MemoryGraph {
   let seed = 11;
   const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
@@ -46,6 +52,9 @@ export function syntheticGraph(count: number, projects: string[]): MemoryGraph {
       mtime: NOW - i * H,
       summary: i % 3 === 0 ? `About ${project} note ${i}` : null,
       issues: [],
+      type: NOTE_TYPES[i % NOTE_TYPES.length],
+      tags: NOTE_TAGS.filter((_, t) => (i >> t) & 1).slice(0, 3),
+      modified: i % 4 === 0 ? null : NOW - i * H - H,
     };
   });
   const edges: [string, string][] = [];
@@ -102,10 +111,10 @@ export function defaultFixture(): Fixture {
   ];
 
   const tabs: Tab[] = [
-    { id: 'root', kind: 'root', project: null, cwd: '/home/test/root', sessionId: null, title: 'Главная', order: 0, model: null, effort: null, worktree: false, status: 'idle', attention: false, queued: 0 },
-    { id: 't1', kind: 'work', project: 'alpha-service', cwd: '/home/test/alpha-service', sessionId: 's-tab', title: 'alpha-service', order: 1, model: null, effort: null, worktree: false, status: 'waiting_permission', attention: true, queued: 1 },
-    { id: 't2', kind: 'work', project: 'beta-web', cwd: '/home/test/beta-web', sessionId: null, title: 'beta-web · задача 2', order: 2, model: 'claude-sonnet-5-5', effort: 'high', worktree: true, status: 'idle', attention: false, queued: 0 },
-    { id: 't3', kind: 'readonly', project: 'alpha-service', cwd: '/home/test/alpha-service', sessionId: 's-live', title: 'Перенос очереди', order: 3, model: null, effort: null, worktree: false, status: 'working', attention: false, queued: 0 },
+    { id: 'root', kind: 'root', project: null, cwd: '/home/test/root', sessionId: null, title: 'Главная', order: 0, model: null, effort: null, worktree: false, status: 'idle', attention: false, queued: 0, subagents: 0 },
+    { id: 't1', kind: 'work', project: 'alpha-service', cwd: '/home/test/alpha-service', sessionId: 's-tab', title: 'alpha-service', order: 1, model: null, effort: null, worktree: false, status: 'waiting_permission', attention: true, queued: 1, subagents: 0 },
+    { id: 't2', kind: 'work', project: 'beta-web', cwd: '/home/test/beta-web', sessionId: null, title: 'beta-web · задача 2', order: 2, model: 'claude-sonnet-5-5', effort: 'high', worktree: true, status: 'idle', attention: false, queued: 0, subagents: 0 },
+    { id: 't3', kind: 'readonly', project: 'alpha-service', cwd: '/home/test/alpha-service', sessionId: 's-live', title: 'Перенос очереди', order: 3, model: null, effort: null, worktree: false, status: 'working', attention: false, queued: 0, subagents: 0 },
   ];
 
   const ev = (seq: number, body: Record<string, unknown>) => ({ seq, at: NOW - (40 - seq) * 60_000, ...body }) as ChatEvent;
@@ -161,9 +170,9 @@ export function defaultFixture(): Fixture {
       { name: 'docs', scope: 'project', project: 'beta-web', transport: 'http', summary: 'https://docs.example.test/mcp', envKeys: [], health: 'connected' },
     ],
     actions: [
-      { id: 'user:deploy', title: 'Выкатить', command: 'deploy.sh {cwd}', cwd: null, confirm: false, builtin: false, approved: false },
-      { id: 'builtin:shell', title: 'Терминал', command: 'wt.exe wsl.exe --cd <cwd>', cwd: '{cwd}', confirm: false, builtin: true, approved: true },
-      { id: 'builtin:terminal', title: 'Терминал', command: 'wt.exe wsl claude --resume {sessionId}', cwd: '{cwd}', confirm: false, builtin: true, approved: true },
+      { id: 'user:deploy', title: 'Выкатить', command: 'deploy.sh {cwd}', cwd: null, confirm: false, bar: true, builtin: false, approved: false },
+      { id: 'builtin:shell', title: 'Терминал', command: 'wt.exe wsl.exe --cd <cwd>', cwd: '{cwd}', confirm: false, bar: true, builtin: true, approved: true },
+      { id: 'builtin:terminal', title: 'Терминал', command: 'wt.exe wsl claude --resume {sessionId}', cwd: '{cwd}', confirm: false, bar: true, builtin: true, approved: true },
     ],
     widgets: {
       defs: [
@@ -267,16 +276,8 @@ export async function startFixture(data: Fixture = defaultFixture()): Promise<Fi
     }
 
     let match: RegExpExecArray | null;
-    if (path === '/api/projects/structure') {
-      // The home folder: every project root, one folder that is nothing yet, a subfolder folded into a project, cut at the cap.
-      const node = (dir: string): ProjectStructureNode => {
-        const p = data.projects.find((x) => x.root === dir);
-        const own: ProjectStructureNode = { path: dir, name: dir.split('/').at(-1)!, kind: p ? (p.misc ? 'misc' : 'project') : 'none', ...(p ? { project: p.key, reason: p.pinned ? 'connected' : 'git' } : {}) };
-        return p?.key === 'alpha-service' ? { ...own, children: [{ path: `${dir}/src`, name: 'src', kind: 'inside', project: p.key, reason: 'git' }] } : own;
-      };
-      const dirs = [...new Set([...data.projects.map((p) => p.root).filter((r) => r.startsWith('/home/test/')), '/home/test/fresh-folder'])].sort();
-      return json(res, 200, { path: '/home/test', name: 'test', kind: 'none', children: dirs.map(node), truncated: true } satisfies ProjectStructureNode);
-    }
+    // One project built on the shipped kit: its mark in the projects list leads to the kits screen.
+    if (path === '/api/project-kit/kits') return json(res, 200, { default: 'project-kit', kits: [{ id: 'project-kit', contents: { claudeMd: true, rules: ['a', 'b'], agents: ['reviewer'], skills: [], checks: [], hooks: [], docs: [] } }], projects: data.projects.map((p) => ({ key: p.key, name: p.name, root: p.root, kit: p.key === 'gamma-tools' ? { id: 'project-kit', version: '1.0.0' } : null, installedAt: null })), history: [] } satisfies KitSetsReport);
     if (path === '/api/projects') return json(res, 200, data.projects);
     if (path === '/api/sessions') return json(res, 200, search.get('project') ? data.sessions.filter((s) => s.project === search.get('project')) : data.sessions);
     if (path === '/api/sessions/active-subagents') return json(res, 200, {});
@@ -291,7 +292,7 @@ export async function startFixture(data: Fixture = defaultFixture()): Promise<Fi
     if (path === '/api/tabs' && m === 'GET') return json(res, 200, data.tabs);
     if (path === '/api/tabs' && m === 'POST') {
       const r = body as { project?: string; title?: string; cwd?: string; readonly?: boolean; resumeSessionId?: string };
-      const tab: Tab = { id: `t${data.tabs.length + 10}`, kind: r.readonly ? 'readonly' : 'work', project: r.project ?? null, cwd: r.cwd || `/home/test/${r.project}`, sessionId: r.resumeSessionId ?? null, title: r.title ?? r.project ?? 'сессия', order: data.tabs.length, model: null, effort: null, worktree: false, status: r.readonly ? 'ended' : 'idle', attention: false, queued: 0 };
+      const tab: Tab = { id: `t${data.tabs.length + 10}`, kind: r.readonly ? 'readonly' : 'work', project: r.project ?? null, cwd: r.cwd || `/home/test/${r.project}`, sessionId: r.resumeSessionId ?? null, title: r.title ?? r.project ?? 'сессия', order: data.tabs.length, model: null, effort: null, worktree: false, status: r.readonly ? 'ended' : 'idle', attention: false, queued: 0, subagents: 0 };
       data.tabs.push(tab);
       data.history[tab.id] = [];
       return json(res, 200, tab);
@@ -343,7 +344,7 @@ export async function startFixture(data: Fixture = defaultFixture()): Promise<Fi
       return json(res, 200, { ok: true, trash: `/home/test/claude-os/data/trash/session-${id}-1`, moved: 1 });
     }
     if (path === '/api/projects/connect' && m === 'POST') {
-      const dir = (body as { path: string }).path;
+      const dir = (body as { path: string }).path.replace(/\/+$/, '');
       const key = dir.split('/').at(-1)!;
       const p: Project = { key, name: key, root: dir, misc: false, sessionCount: 0, liveCount: 0, lastActivity: null, memoryCount: 0, memoryConnected: false, memoryDrift: 0, pinned: true, mapPin: null, description: null, color: null, parent: null, folder: false };
       data.projects.unshift(p);
@@ -413,7 +414,23 @@ export async function startFixture(data: Fixture = defaultFixture()): Promise<Fi
       push({ t: 'invalidate', topics: ['memory'] });
       return json(res, 200, { restored: ['MEMORY.md', 'project.md'], kept: ['db-host-config.md'], conflicts: ['state.md'] });
     }
-    if (path === '/api/memory/graph') return json(res, 200, data.graph);
+    if (path === '/api/memory/graph') return json(res, 200, { total: data.graph.nodes.length, counts: countsOf(data.graph.nodes), ...data.graph });
+    if (path === '/api/memory/overview' || path === '/api/memory/list') {
+      // The real catalog over the fixture's nodes; a substring query stands in for FTS.
+      const notes = data.graph.nodes.filter((n) => n.file !== 'MEMORY.md').map((n): CatalogNote => ({
+        id: n.id, name: n.title, project: n.project, connected: n.connected, type: n.type, tags: n.tags, summary: n.summary,
+        mtime: n.modified ?? n.mtime, issues: n.issues, degree: n.degree, description: n.summary,
+      }));
+      const health = healthOf(notes);
+      if (path === '/api/memory/overview') return json(res, 200, overviewOf(notes, health));
+      const q = (search.get('q') ?? '').trim().toLowerCase();
+      const ranked = q ? new Map(notes.filter((n) => n.name.toLowerCase().includes(q)).map((n) => [n.id, `\u0001${n.name}\u0002`])) : null;
+      const project = search.get('project');
+      return json(res, 200, listOf(notes, health, {
+        project: project === null ? undefined : project || null, type: search.get('type') || undefined, tag: search.get('tag') || undefined,
+        health: (search.get('health') || undefined) as MemoryHealth | undefined, offset: Number(search.get('offset') ?? 0), limit: Number(search.get('limit') ?? 50),
+      }, ranked));
+    }
     if (path === '/api/memory/search') {
       // A substring stands in for FTS; the snippet carries the real markers and brackets that must stay literal.
       const q = (search.get('q') ?? '').trim().toLowerCase();
@@ -486,6 +503,12 @@ export async function startFixture(data: Fixture = defaultFixture()): Promise<Fi
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
+    const pluginUi = /^\/api\/os-plugins\/kanban-plus\/fixture\/(ui\/[\w.-]+\.js)$/.exec(url.pathname);
+    if (pluginUi) {
+      res.writeHead(200, { 'content-type': 'text/javascript' });
+      res.end(readFileSync(join(import.meta.dirname, '..', 'plugins/kanban-plus', pluginUi[1])));
+      return;
+    }
     if (url.pathname.startsWith('/api/')) {
       route(req, res, url.pathname, url.searchParams).catch((e: Error) => json(res, 500, { error: e.message }));
       return;

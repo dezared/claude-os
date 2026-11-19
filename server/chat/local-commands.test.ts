@@ -144,6 +144,7 @@ describe('commands Claude OS answers itself', () => {
     assert.equal(srv.log().filter((l) => l.kind === 'user').length, users, 'no prompt, no tokens');
     const asked = () => srv.log().filter((l) => l.kind === 'control' && l.subtype === 'remote_control').map((l) => (l.request as { enabled: boolean }).enabled);
     assert.deepEqual(asked().slice(-1), [true]);
+    assert.equal((await tabOf(tab.id)).remoteControl, true, 'the tab shows the link');
 
     // Longer than the idle limit of this server: the link is alive only while the process is.
     await new Promise((r) => setTimeout(r, 900));
@@ -153,6 +154,17 @@ describe('commands Claude OS answers itself', () => {
     await send(tab.id, '/remote-control');
     await client.waitEvent(tab.id, 'assistant', (e) => e.key === 'rcOff');
     assert.deepEqual(asked().slice(-2), [true, false]);
+    assert.equal((await tabOf(tab.id)).remoteControl, false);
+  });
+
+  it('the remote link mark goes with the process', async () => {
+    const tab = await newTab();
+    await send(tab.id, '/rc');
+    await client.waitEvent(tab.id, 'assistant', (e) => e.key === 'rcOnUrl');
+    assert.equal((await tabOf(tab.id)).remoteControl, true);
+    assert.equal((await srv.api('POST', `/api/tabs/${tab.id}/reset`)).status, 200);
+    await client.waitEvent(tab.id, 'warning', (e) => e.key === 'rcStopped');
+    assert.equal((await tabOf(tab.id)).remoteControl, false);
   });
 
   it('/usage runs in a real pseudo-terminal and the chat gets the rendered screen', async () => {

@@ -1,5 +1,7 @@
 // IDE+: a light editor over the project files panel. Plain modules with no build step: React comes from the app.
 import { ICONS } from './icons.js';
+import { makePicture } from './picture.js';
+import { makeTables, TABLE_CSS } from './table.js';
 
 const NAMES = {
   'dockerfile': 'docker', '.dockerignore': 'docker', 'docker-compose.yml': 'docker', 'docker-compose.yaml': 'docker', 'compose.yml': 'docker', 'compose.yaml': 'docker',
@@ -24,7 +26,9 @@ const LANGUAGES = {
 };
 
 // What opens as a picture or a player instead of as text. SVG is text too: it can be read both ways.
-const MEDIA = { svg: 'svg', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', avif: 'image', bmp: 'image', ico: 'image', mp4: 'video', m4v: 'video', webm: 'video', mov: 'video', mkv: 'video', ogv: 'video', mp3: 'audio', wav: 'audio', ogg: 'audio', oga: 'audio', opus: 'audio', flac: 'audio', m4a: 'audio', aac: 'audio' };
+const MEDIA = { svg: 'svg', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', avif: 'image', bmp: 'image', ico: 'image', mp4: 'video', m4v: 'video', webm: 'video', mov: 'video', mkv: 'video', ogv: 'video', mp3: 'audio', wav: 'audio', ogg: 'audio', oga: 'audio', opus: 'audio', flac: 'audio', m4a: 'audio', aac: 'audio', pdf: 'pdf', xlsx: 'sheet', xls: 'sheet', ods: 'sheet' };
+// Text files shown as a table first, with the plugin's editor one click away.
+const TABLES = { csv: true, tsv: true };
 
 const STRINGS = {
   ru: {
@@ -32,12 +36,14 @@ const STRINGS = {
     reveal: 'Открыть в проводнике', save: 'Сохранить', saved: 'Сохранено', unsaved: 'Есть несохранённые правки', readonly: 'Только чтение', plain: 'Текст',
     smaller: 'Уменьшить код', larger: 'Увеличить код', resetZoom: 'Вернуть размер', resize: 'Изменить ширину панели', editor: 'Текст файла',
     conflict: 'Файл изменился на диске, пока вы его правили.', overwrite: 'Перезаписать', takeDisk: 'Взять с диска',
+    doubleClick: 'двойной щелчок', table: 'Таблица', rowsCut: 'Показаны первые {n} строк', sheetCut: 'Лист показан не целиком: слишком много строк, столбцов или текста.', sheetEmpty: 'В книге нет листов.', sheetFailed: 'Эту таблицу не получается прочитать. Открываются xlsx и ods; старый формат xls — нет.',
   },
   en: {
     image: 'Image', video: 'Video', audio: 'Audio', preview: 'Preview', code: 'Code', fit: 'Fit the panel', zoomIn: 'Zoom in', zoomOut: 'Zoom out', mediaFailed: 'This file cannot be shown here. Its format may not be supported.',
     reveal: 'Open in file manager', save: 'Save', saved: 'Saved', unsaved: 'Unsaved changes', readonly: 'Read only', plain: 'Text',
     smaller: 'Make code smaller', larger: 'Make code larger', resetZoom: 'Reset size', resize: 'Resize the panel', editor: 'File text',
     conflict: 'The file changed on disk while you were editing it.', overwrite: 'Overwrite', takeDisk: 'Use the disk version',
+    doubleClick: 'double click', table: 'Table', rowsCut: 'Showing the first {n} rows', sheetCut: 'The sheet is cut short: too many rows, columns or too much text.', sheetEmpty: 'The workbook has no sheets.', sheetFailed: 'This spreadsheet cannot be read. xlsx and ods open; the old xls format does not.',
   },
 };
 
@@ -68,7 +74,11 @@ const CSS = `
 .idep-stage { flex: 1; min-height: 0; overflow: auto; display: flex; animation: idep-in .16s ease-out; }
 .idep-stage > * { margin: auto; flex: none; }
 .idep-board { background-color: #1a1a1f; background-image: linear-gradient(45deg, #24242b 25%, transparent 25%, transparent 75%, #24242b 75%), linear-gradient(45deg, #24242b 25%, transparent 25%, transparent 75%, #24242b 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
-.idep-picture { display: block; transition: width .14s ease-out, opacity .14s ease-out; }
+.idep-picture { display: block; transition: opacity .14s ease-out; }
+.idep-grab { cursor: grab; }
+.idep-grabbing { cursor: grabbing; }
+.idep-grab .idep-picture, .idep-grabbing .idep-picture { user-select: none; }
+.idep-pdf { flex: 1; min-height: 0; width: 100%; border: 0; background: #525659; }
 .idep-picture.idep-fit { max-width: 100%; max-height: 100%; object-fit: contain; }
 .idep-video { width: 100%; max-height: 100%; background: #000; }
 .idep-audio { display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(90%, 420px); padding: 16px; color: var(--color-muted); font-size: 12px; text-align: center; overflow-wrap: anywhere; }
@@ -96,7 +106,6 @@ const nameOf = (path) => path.slice(Math.max(path.lastIndexOf('/'), path.lastInd
 const normalize = (text) => text.replace(/\r\n/g, '\n');
 const clampSize = (n) => Math.min(MAX_SIZE, Math.max(MIN_SIZE, n));
 const clampWidth = (n) => Math.max(MIN_WIDTH, Math.min(window.innerWidth - TREE_AND_CHAT, n));
-const clampScale = (n) => Math.min(8, Math.max(0.1, n));
 const fmtTime = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '');
 const lineCount = (text) => (text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length) || 1;
 
@@ -106,7 +115,7 @@ export function activate(host) {
   const text = STRINGS[lang()] ?? STRINGS.en;
 
   const style = document.createElement('style');
-  style.textContent = CSS;
+  style.textContent = CSS + TABLE_CSS;
   document.head.append(style);
 
   // Survive closing the pane or switching files: a draft is lost only by saving it or choosing the disk version.
@@ -170,52 +179,14 @@ export function activate(host) {
     });
   }
 
-  function Picture({ src, alt, leading, setPaneWidth }) {
-    const [scale, setScale] = useState(null); // null: fit the panel
-    const [size, setSize] = useState(null);
-    const [failed, setFailed] = useState(false);
-    const box = useRef(null);
+  const Picture = makePicture({ React, text, useStoredWidth, ResizeHandle });
+
+  // The browser's own PDF viewer: the media route hands it the file only when its bytes are a PDF.
+  function Pdf({ src, name, setPaneWidth }) {
     useStoredWidth(setPaneWidth);
-    useEffect(() => setFailed(false), [src]);
-    const current = () => {
-      const img = box.current?.querySelector('img');
-      return scale ?? (img && size ? img.clientWidth / size.width : 1);
-    };
-    const zoomBy = useRef(null);
-    zoomBy.current = (factor) => setScale(clampScale(current() * factor));
-    useEffect(() => {
-      const el = box.current;
-      const onWheel = (e) => {
-        if (!(e.ctrlKey || e.metaKey)) return;
-        e.preventDefault();
-        zoomBy.current(e.deltaY < 0 ? 1.25 : 0.8);
-      };
-      el.addEventListener('wheel', onWheel, { passive: false });
-      return () => el.removeEventListener('wheel', onWheel);
-    }, []);
     return h('div', { className: `idep-root${setPaneWidth ? ' idep-resizable' : ''}` },
-      h('div', { className: 'idep-bar' },
-        leading,
-        size && h('span', { 'data-testid': 'ide-plus-size' }, `${size.width}×${size.height}`),
-        h('span', { className: 'idep-grow' }),
-        h('button', { type: 'button', className: 'idep-btn', 'aria-label': text.zoomOut, title: text.zoomOut, onClick: () => zoomBy.current(0.8) }, '−'),
-        h('button', { type: 'button', className: 'idep-btn', 'aria-label': text.fit, 'aria-pressed': scale === null, title: text.fit, onClick: () => setScale(null) }, scale === null ? text.fit : `${Math.round(scale * 100)}%`),
-        h('button', { type: 'button', className: 'idep-btn', 'aria-label': text.zoomIn, title: text.zoomIn, onClick: () => zoomBy.current(1.25) }, '+'),
-      ),
-      h('div', { ref: box, className: 'idep-stage idep-board' },
-        failed
-          ? h('p', { role: 'alert', className: 'idep-failed' }, text.mediaFailed)
-          : h('img', {
-            src,
-            alt,
-            'data-testid': 'ide-plus-picture',
-            draggable: false,
-            className: `idep-picture${scale === null ? ' idep-fit' : ''}`,
-            style: scale !== null && size ? { width: size.width * scale, maxWidth: 'none' } : undefined,
-            onLoad: (e) => setSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight }),
-            onError: () => setFailed(true),
-          }),
-      ),
+      h('div', { className: 'idep-bar' }, h('span', null, 'PDF')),
+      h('iframe', { src, title: name, className: 'idep-pdf', 'data-testid': 'ide-plus-pdf' }),
       setPaneWidth && h(ResizeHandle, { setPaneWidth }),
     );
   }
@@ -277,11 +248,15 @@ export function activate(host) {
 
   function FileView(props) {
     const { tabId, path, file } = props;
-    const kind = MEDIA[extension(nameOf(path))];
+    const ext = extension(nameOf(path));
+    const kind = MEDIA[ext];
     if (kind === 'svg') return file.kind === 'text' && !file.truncated ? h(SvgView, props) : h(View, props);
+    if (TABLES[ext] && file.kind === 'text') return h(tables.CsvView, props);
     if (!kind) return h(View, props);
+    if (kind === 'sheet') return h(tables.SheetView, props);
     const src = `/api/tabs/${encodeURIComponent(tabId)}/media?path=${encodeURIComponent(path)}`;
     if (kind === 'image') return h(Picture, { src, alt: path, leading: h('span', null, text.image), setPaneWidth: props.setPaneWidth });
+    if (kind === 'pdf') return h(Pdf, { src, name: nameOf(path), setPaneWidth: props.setPaneWidth });
     return h(Player, { kind, src, name: nameOf(path), setPaneWidth: props.setPaneWidth });
   }
 
@@ -430,6 +405,8 @@ export function activate(host) {
     );
   }
 
+  const tables = makeTables({ React, api, toastError, text, View, drafts, normalize, extension, useStoredWidth, ResizeHandle });
+
   return {
     fileIcon({ name, dir, expanded }) {
       if (dir) return h(Icon, { icon: expanded ? ICONS.folderOpen : ICONS.folder });
@@ -446,7 +423,7 @@ export function activate(host) {
       }];
     },
     fileView: FileView,
-    opensMedia: (path) => ['image', 'video', 'audio'].includes(MEDIA[extension(nameOf(path))]),
+    opensMedia: (path) => ['image', 'video', 'audio', 'pdf', 'sheet'].includes(MEDIA[extension(nameOf(path))]),
     dispose() {
       style.remove();
     },

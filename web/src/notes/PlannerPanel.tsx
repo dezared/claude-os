@@ -3,23 +3,26 @@ import { type ClipboardEvent, type DragEvent, type KeyboardEvent, useEffect, use
 import { ColorPicker } from '@/components/ColorPicker';
 import { claudeItems, ContextArea, useContextMenu } from '@/components/ContextMenu';
 import { popoutBridge, usePopouts } from '@/components/desktop';
+import { Fold } from '@/components/Motion';
 import { clampFloat, dragFloat, plannerFloat } from '@/components/plannerFloat';
 import { Empty, ErrorState, Skeleton, Spinner } from '@/components/states';
 import { Button, IconButton } from '@/components/ui';
 import type { MenuItem } from '@/home/ActionMenu';
 import { spendNote } from '@/lib/account';
 import { api, setCached, useApi } from '@/lib/api';
+import { useFlip } from '@/lib/flip';
 import { cn, fmtAgo } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { inPopout } from '@/lib/popout';
 import { toast, toastError, useApp } from '@/lib/store';
+import { pluginScreens } from '@/lib/uiPlugins';
 import type { PlannerFolder, PlannerNote } from '@/lib/types';
 import { clipboardFiles, readFile } from '@/work/Composer';
 import { VoiceButton } from '@/work/voice/VoiceButton';
 import { FOLDER_COLORS } from '../../../shared/contract.ts';
 import { parseItem } from '../../../shared/plannerItems.ts';
 import { dragMention, tagInChat } from './mention';
-import { imagePrefix, imageSrc, noContent, NoteEditor, noteUrl, patchCachedNote, type PlannerList, Thumb, useDrafts } from './NoteEditor';
+import { imagePrefix, imageSrc, noContent, NoteEditor, noteUrl, type PlannerList, Thumb, TitleField, useDrafts } from './NoteEditor';
 
 const NOTE_MIME = 'application/x-claude-os-note';
 const FOLDER_MIME = 'application/x-claude-os-folder'; // a chip moved along the bar, never a note into a folder
@@ -86,7 +89,7 @@ function NoteField({ text, setText, images, setImages, dir, busy, setBusy, onSav
   // Filing is the rarer of the two: it waits on the right click of the field, and of the note later on.
   const menu = useContextMenu([{ id: 'planner.file', label: t('planner.file'), icon: Sparkles, disabled: empty || busy, onSelect: () => onSave(true) }]);
   return (
-    <div ref={menu} className="flex flex-col rounded-xl bg-white/[.045] shadow-[inset_0_0_0_1px_rgba(255,255,255,.06)] transition-[background-color,box-shadow] duration-150 focus-within:bg-white/[.06] focus-within:shadow-[inset_0_0_0_1px_rgba(255,255,255,.14)]">
+    <div ref={menu} className="flex flex-col rounded-xl bg-fg/[.045] shadow-[inset_0_0_0_1px_var(--color-line2)] transition-[background-color,box-shadow] duration-150 focus-within:bg-fg/[.06] focus-within:shadow-[inset_0_0_0_1px_var(--color-line)]">
       <textarea
         ref={box}
         autoFocus
@@ -120,44 +123,6 @@ function NoteBadge({ note }: { note: PlannerNote }) {
   return null;
 }
 
-/** The name, in place. Saved on leaving the field; an empty one is not a name. */
-function TitleField({ note, onActive }: { note: PlannerNote; onActive: (on: boolean) => void }) {
-  const [value, setValue] = useState<string | null>(null);
-  const commit = () => {
-    const clean = value?.trim();
-    setValue(null);
-    onActive(false);
-    if (!clean || clean === note.title) return;
-    patchCachedNote({ ...note, title: clean });
-    api<PlannerNote>(noteUrl(note.id), { method: 'PATCH', body: { title: clean } }).then(patchCachedNote, toastError);
-  };
-  return (
-    <textarea
-      rows={1}
-      aria-label={t('planner.noteTitle')}
-      value={value ?? note.title}
-      maxLength={80}
-      spellCheck={false}
-      onFocus={() => onActive(true)}
-      onChange={(e) => setValue(e.target.value.replace(/\n/g, ' '))}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          e.currentTarget.blur();
-        } else if (e.key === 'Escape') {
-          e.stopPropagation();
-          setValue(null);
-          // After the state above: the blur must not save what was just dropped.
-          const el = e.currentTarget;
-          requestAnimationFrame(() => el.blur());
-        }
-      }}
-      className="block w-full resize-none bg-transparent text-[13px] font-medium wrap-anywhere text-fg outline-none [field-sizing:content]"
-    />
-  );
-}
-
 function NoteRow({ note, dir, folders, showFolder, expanded, onToggle, onFile, onRemove, onMove }: { note: PlannerNote; dir: string | undefined; folders: PlannerFolder[]; showFolder: boolean; expanded: boolean; onToggle: () => void; onFile: () => void; onRemove: () => void; onMove: (folder: string | null) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const text = useDrafts((s) => s[note.id]?.text) ?? note.text;
@@ -174,7 +139,8 @@ function NoteRow({ note, dir, folders, showFolder, expanded, onToggle, onFile, o
   const menu: MenuItem[] = [
     ...(inPopout ? [] : [{ id: 'planner.tag', label: t('planner.tag'), icon: AtSign, onSelect: () => tag(note) }]), // no chat in this window: a note is dragged to one
     { id: 'planner.file', label: failed ? t('planner.retry') : t('planner.file'), icon: Sparkles, disabled: busy, title: note.job?.error, onSelect: onFile },
-    { id: 'planner.decompose', label: t('planner.decompose'), icon: ListTree, title: spendNote(), onSelect: () => void api(`${noteUrl(note.id)}/decompose`, { method: 'POST' }).catch(toastError) },
+    // Cards go onto the board of the Kanban+ plugin: with it off the item would lead nowhere.
+    ...(pluginScreens().some((s) => s.id === 'kanban') ? [{ id: 'planner.decompose', label: t('planner.decompose'), icon: ListTree, title: spendNote(), onSelect: () => void api(`${noteUrl(note.id)}/decompose`, { method: 'POST' }).catch(toastError) }] : []),
     ...folders.filter((f) => f !== folder).map((f, i) => ({ id: `planner.folder.${f.id}`, label: t('planner.moveTo', { name: f.name }), icon: FolderPlus, apart: i === 0, onSelect: () => onMove(f.id) })),
     ...(folder ? [{ id: 'planner.folderOut', label: t('planner.moveOut'), icon: FolderMinus, onSelect: () => onMove(null) }] : []),
     ...askOnly.map((i) => ({ ...i, apart: true })),
@@ -197,7 +163,7 @@ function NoteRow({ note, dir, folders, showFolder, expanded, onToggle, onFile, o
   );
   return (
     <ContextArea items={menu} className="block">
-      <div ref={ref} data-planner-note={note.id} className={cn('rounded-lg transition-colors duration-100', expanded ? 'bg-white/[.045]' : 'hover:bg-white/[.04]')}>
+      <div ref={ref} data-planner-note={note.id} data-flip={note.id} className={cn('rounded-lg transition-colors duration-100', expanded ? 'bg-fg/[.045]' : 'hover:bg-fg/[.04]')}>
         <div
           draggable={!naming}
           onDragStart={(e) => {
@@ -229,7 +195,7 @@ function NoteRow({ note, dir, folders, showFolder, expanded, onToggle, onFile, o
             </button>
           )}
         </div>
-        {expanded && <div className="px-2 pt-1 pb-2.5 pl-[26px]"><NoteEditor note={note} dir={dir} busy={busy} /></div>}
+        <Fold show={expanded} className="px-2 pt-1 pb-2.5 pl-[26px]"><NoteEditor note={note} dir={dir} busy={busy} /></Fold>
       </div>
     </ContextArea>
   );
@@ -259,7 +225,7 @@ function FolderInput({ initial, onDone }: { initial: string; onDone: (name: stri
           finish(null);
         }
       }}
-      className="w-28 rounded-md bg-white/[.08] px-2 py-0.5 text-xs text-fg outline-none [field-sizing:content]"
+      className="w-28 rounded-md bg-fg/[.08] px-2 py-0.5 text-xs text-fg outline-none [field-sizing:content]"
     />
   );
 }
@@ -318,7 +284,7 @@ function FolderChip({ label, color, count, active, items, onClick, onDropNote, f
           e.preventDefault();
           onDropNote(id);
         }}
-        className={cn('press relative flex max-w-44 min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-xs transition-colors duration-100', active ? 'bg-white/[.1] text-fg' : 'text-muted hover:bg-white/[.05] hover:text-fg', over && 'bg-accent-bg text-accent shadow-[inset_0_0_0_1px_var(--color-accent-deep)]')}
+        className={cn('press relative flex max-w-44 min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-xs transition-colors duration-100', active ? 'bg-fg/[.1] text-fg' : 'text-muted hover:bg-fg/[.05] hover:text-fg', over && 'bg-accent-bg text-accent shadow-[inset_0_0_0_1px_var(--color-accent-deep)]')}
       >
         {side && <span data-folder-insert={side} className={cn('pointer-events-none absolute inset-y-0.5 w-0.5 rounded-full bg-accent', side === 'before' ? '-left-px' : '-right-px')} />}
         {color && (
@@ -431,6 +397,8 @@ export function Planner({ focus }: { focus: string | null }) {
   const [text, setText] = useState(() => readField().text);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(focus);
+  const list = useRef<HTMLDivElement>(null);
+  useFlip(list); // a note filed, removed or added: the rest slide, it fades out or grows in
   const [search, setSearch] = useState('');
   const [show, setShowRaw] = useState<string | null>(() => localStorage.getItem(SHOWN_FOLDER));
   // Pictures of the draft stand apart from its words: the field stays readable, and the paths join the text on saving.
@@ -500,7 +468,7 @@ export function Planner({ focus }: { focus: string | null }) {
         <div className="flex flex-none items-start gap-2 px-3 pb-2">
           <FolderBar folders={folders} notes={notes} show={folder} setShow={setShow} onMove={move} onChanged={planner.refetch} />
           {/* An icon until it is wanted: opens on focus and stays open while it holds words. */}
-          <label className="flex h-6 w-6 flex-none cursor-text items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-dim transition-[width,background-color,color] duration-200 ease-out hover:text-fg focus-within:w-44 focus-within:bg-white/[.06] has-[input:not(:placeholder-shown)]:w-44 has-[input:not(:placeholder-shown)]:bg-white/[.06]">
+          <label className="flex h-6 w-6 flex-none cursor-text items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-dim transition-[width,background-color,color] duration-200 ease-out hover:text-fg focus-within:w-44 focus-within:bg-fg/[.06] has-[input:not(:placeholder-shown)]:w-44 has-[input:not(:placeholder-shown)]:bg-fg/[.06]">
             <Search size={13} className="flex-none" />
             <input type="search" aria-label={t('planner.search')} placeholder={t('planner.search')} value={search} onChange={(e) => setSearch(e.target.value)} className="w-36 flex-none bg-transparent text-xs text-fg outline-none placeholder:text-dim" />
           </label>
@@ -516,7 +484,7 @@ export function Planner({ focus }: { focus: string | null }) {
         ) : shown.length === 0 ? (
           <Empty>{words ? t('planner.noMatch') : t('planner.folderEmpty')}</Empty>
         ) : (
-          <div className="flex flex-col gap-px">
+          <div ref={list} className="relative flex flex-col gap-px">
             {/* One flat list, newest first: filing changes a row, and never remounts it. */}
             {shown.map((n) => (
               <NoteRow key={n.id} note={n} dir={planner.data?.dir} folders={folders} showFolder={!folder} expanded={expanded === n.id} onToggle={() => setExpanded(expanded === n.id ? null : n.id)} onFile={() => void file(n)} onRemove={() => remove(n)} onMove={(to) => move(n.id, to)} />
@@ -578,7 +546,7 @@ export function PlannerPanel() {
       role="complementary"
       aria-label={t('planner.title')}
       className={cn(
-        'glass-reading enter-fade z-30 flex flex-col overflow-hidden rounded-2xl bg-[#0e0e12]!',
+        'glass-reading enter-fade z-30 flex flex-col overflow-hidden rounded-2xl bg-panel-deep!',
         floating ? cn('fixed z-40 w-[min(620px,calc(100vw-16px))]', !collapsed && 'h-[min(780px,calc(100vh-64px))]') : 'absolute top-2 right-2 bottom-2 w-[min(430px,calc(100vw-16px))]',
       )}
     >

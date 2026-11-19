@@ -9,7 +9,7 @@ import { childOf, computeLive, endProcess, procStartOf, readRegistry, sameProces
 import { findJournal, readTranscriptAsync } from '../journal/parse.ts';
 import { probeCli } from './probe.ts';
 import { promptKindOf, sessionProfileBlock } from './profile.ts';
-import { createPlannerMcp, createRootMcp, createServiceMcp, createServiceTaskMcp, DOCUMENT_TOOLS, MEMORY_SEARCH_TOOL, PROGRESS_TOOL, ROOT_DISPATCH_TOOLS, ROOT_KANBAN_TOOLS, ROOT_MCP_NAME, ROOT_PLANNER_TOOLS, ROOT_PROJECT_TOOLS, ROOT_READ_TOOLS, SERVICE_TASK_TOOLS, SERVICE_TOOLS, UI_TOOL, WORK_KANBAN_TOOLS, WORK_PLANNER_TOOL } from './rootMcp.ts';
+import { createPlannerMcp, createRootMcp, createServiceMcp, createServiceTaskMcp, DOCUMENT_TOOLS, MEMORY_SEARCH_TOOL, PROGRESS_TOOL, ROOT_DISPATCH_TOOLS, ROOT_MCP_NAME, ROOT_PLANNER_TOOLS, ROOT_PROJECT_TOOLS, ROOT_READ_TOOLS, SERVICE_TASK_TOOLS, SERVICE_TOOLS, UI_TOOL, WORK_PLANNER_TOOL, pluginAllowed } from './rootMcp.ts';
 import { ServiceTasks } from './serviceTasks.ts';
 import { withSetupTools } from './setupMcp.ts';
 import type { OutgoingMessage } from './files.ts';
@@ -294,7 +294,7 @@ export class Chat implements SessionHost {
       return {
         mcpServers: { [ROOT_MCP_NAME]: createServiceTaskMcp(this.ctx, this, this.serviceRunning.tools) },
         tools: ['Read', 'Glob', 'Grep', 'Edit', 'Write'],
-        allowedTools: ['Read', 'Glob', 'Grep', ...SERVICE_TASK_TOOLS, ...this.serviceRunning.tools.map((t) => `mcp__${ROOT_MCP_NAME}__${t}`)],
+        allowedTools: ['Read', 'Glob', 'Grep', ...SERVICE_TASK_TOOLS, ...pluginAllowed(this.ctx, 'serviceTask'), ...this.serviceRunning.tools.map((t) => `mcp__${ROOT_MCP_NAME}__${t}`)],
         settingSources: ['project'],
         settings: this.serviceSettings(),
         systemPrompt,
@@ -317,8 +317,8 @@ export class Chat implements SessionHost {
         canUseTool: async (tool) => ({ behavior: 'deny', message: `${tool}: a service job has nobody to ask` }),
       };
     }
-    if (row.kind !== 'root') return { mcpServers: { [ROOT_MCP_NAME]: createPlannerMcp(this.ctx, row.id, row.title, row.project) }, allowedTools: [WORK_PLANNER_TOOL, MEMORY_SEARCH_TOOL, UI_TOOL, PROGRESS_TOOL, ...WORK_KANBAN_TOOLS, ...DOCUMENT_TOOLS, `mcp__${ROOT_MCP_NAME}__kit_plan`] };
-    return { mcpServers: { [ROOT_MCP_NAME]: createRootMcp(this.ctx, this, row.id, row.title) }, allowedTools: [...ROOT_READ_TOOLS, ...ROOT_PLANNER_TOOLS, ...ROOT_KANBAN_TOOLS, ...ROOT_DISPATCH_TOOLS, ...ROOT_PROJECT_TOOLS, UI_TOOL, PROGRESS_TOOL, ...DOCUMENT_TOOLS] };
+    if (row.kind !== 'root') return { mcpServers: { [ROOT_MCP_NAME]: createPlannerMcp(this.ctx, this, row) }, allowedTools: [WORK_PLANNER_TOOL, MEMORY_SEARCH_TOOL, `mcp__${ROOT_MCP_NAME}__list_projects`, UI_TOOL, PROGRESS_TOOL, ...pluginAllowed(this.ctx, 'work'), ...DOCUMENT_TOOLS, `mcp__${ROOT_MCP_NAME}__kit_plan`, `mcp__${ROOT_MCP_NAME}__list_secrets`] };
+    return { mcpServers: { [ROOT_MCP_NAME]: createRootMcp(this.ctx, this, row.id, row.title) }, allowedTools: [...ROOT_READ_TOOLS, ...ROOT_PLANNER_TOOLS, ...pluginAllowed(this.ctx, 'root'), ...ROOT_DISPATCH_TOOLS, ...ROOT_PROJECT_TOOLS, UI_TOOL, PROGRESS_TOOL, ...DOCUMENT_TOOLS, `mcp__${ROOT_MCP_NAME}__list_secrets`] };
   }
 
   private rules: string | null = null;

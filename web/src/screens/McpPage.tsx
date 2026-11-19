@@ -8,7 +8,7 @@ import { useApp } from '@/lib/store';
 import type { EntityStats, McpAdminRow, McpReport } from '@/lib/types';
 import { Facts, Section, UsageSections, when } from './admin/entityParts';
 import { mcpContext, mcpMenu, projectView } from './admin/menus';
-import { McpStatus, Stat, StatStrip } from './admin/parts';
+import { McpStatus, Stat, StatStrip, Tag } from './admin/parts';
 import { EntityShell, type EntityPageProps } from './EntityPage';
 import { Details } from './McpPane';
 
@@ -42,13 +42,23 @@ function Places({ row }: { row: McpAdminRow }) {
   );
 }
 
+// The user's own note (config/settings.json `mcpNotes`, e.g. "VPN only") stands next to the status, as in the list row.
+function StatusAndNote({ row }: { row: McpAdminRow }) {
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <McpStatus status={row.status} />
+      {row.note && <Tag tone="warn" title={row.note}>{row.note}</Tag>}
+    </span>
+  );
+}
+
 function Body({ row }: { row: McpAdminRow }) {
   const stats = useApi<EntityStats>(`/api/admin/entity?type=mcp&id=${encodeURIComponent(row.name)}`, ['mcp', 'tokens', 'audit']);
   const s = stats.data;
   return (
     <>
       <Facts rows={[
-        [t('adm.colStatus'), <McpStatus status={row.status} />],
+        [t('adm.colStatus'), <StatusAndNote row={row} />],
         [t('ent.serverInfo'), row.serverInfo ? `${row.serverInfo.name} ${row.serverInfo.version}` : null],
         [t('mcp.transport'), row.definitions[0]?.transport],
         [t('ent.changed'), when(s?.changedAt)],

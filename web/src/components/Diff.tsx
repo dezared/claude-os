@@ -20,8 +20,8 @@ export const Diff = memo(function Diff({ diff, maxHeight = 320 }: { diff: string
             className={cn(
               'min-w-fit px-3 whitespace-pre',
               head && 'text-dim',
-              add && 'bg-accent-bg text-[#f0b8a3]',
-              del && 'bg-zinc-800/50 text-zinc-500 line-through decoration-zinc-600',
+              add && 'bg-accent-bg text-[#f0b8a3] light:text-[#9a4527]',
+              del && 'bg-zinc-800/50 text-zinc-500 line-through decoration-zinc-600 light:bg-fg/[.05] light:text-dim light:decoration-dim',
               !head && !add && !del && 'text-muted',
             )}
           >

@@ -1,7 +1,7 @@
 // One language setting: profile.language drives the UI (its catalog or en), the picker writes the profile,
 // and Settings has a Profile section. The real server with the fake CLI and throwaway directories, no tokens.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -12,7 +12,6 @@ import { startServer, waitUntil, type TestServer } from '../server/chat/fixtures
 let srv: TestServer;
 let browser: Browser;
 let plugins: string;
-let projectsDir: string;
 const errors: string[] = [];
 
 const ruHome = 'Начни новый проект, запусти что-то…';
@@ -56,8 +55,6 @@ const uiLang = (page: Page) => page.evaluate(() => document.documentElement.lang
 before(async () => {
   plugins = mkdtempSync(join(tmpdir(), 'claude-os-plugins-'));
   srv = await startServer({ CLAUDE_OS_PLUGINS: plugins });
-  projectsDir = join(srv.dir, 'projects');
-  mkdirSync(projectsDir);
   browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 });
 
@@ -79,12 +76,12 @@ test('before a profile the stored language and the picker are local; then the pr
 
   const puts = profilePuts(page);
   await toSettings(page);
-  await page.getByRole('radio', { name: 'EN' }).click();
+  await page.getByRole('radio', { name: 'EN', exact: true }).click();
   await page.getByRole('heading', { name: 'Settings' }).waitFor();
   assert.deepEqual(puts, [], 'before a profile the picker changes the UI only');
   assert.equal(await profile(), null);
 
-  await putProfile({ name: 'Ann', language: 'ru', projectsDir, questionLevel: 'balanced' });
+  await putProfile({ name: 'Ann', language: 'ru', questionLevel: 'balanced' });
   await page.evaluate(() => localStorage.setItem('claude-os.view', JSON.stringify({ kind: 'home' })));
   await page.reload();
   await homeBox(page, ruHome);
@@ -121,15 +118,15 @@ test('unknown language renders en and keeps profile', async () => {
   await homeBox(page, enHome);
   assert.equal(await uiLang(page), 'en');
   await toSettings(page);
-  await page.getByRole('radio', { name: 'EN' }).waitFor();
+  await page.getByRole('radio', { name: 'EN', exact: true }).waitFor();
   assert.equal(await page.getByRole('radiogroup', { name: 'Language' }).getByRole('radio', { checked: true }).count(), 0, 'no catalog: nothing selected');
   assert.equal((await profile())?.language, 'de');
-  await page.getByRole('radio', { name: 'EN' }).click();
+  await page.getByRole('radio', { name: 'EN', exact: true }).click();
   await waitUntil(async () => (await profile())?.language === 'en', 'a click on EN is a deliberate choice');
   await page.context().close();
 });
 
-test('profile section edits the name, language, projects folder and question level', async () => {
+test('profile section edits the name, language and question level, and has no projects folder', async () => {
   await putProfile({ name: 'Ann', language: 'en', questionLevel: 'balanced' });
   const page = await open('en-US', { kind: 'settings', section: 'profile' });
   const name = page.getByRole('textbox', { name: 'Name' });
@@ -142,11 +139,7 @@ test('profile section edits the name, language, projects folder and question lev
   await page.getByRole('radio', { name: 'Thorough' }).click();
   await waitUntil(async () => (await profile())?.questionLevel === 'thorough', 'question level saved');
 
-  const folder = page.getByRole('textbox', { name: 'Projects folder' });
-  await folder.fill(join(srv.dir, 'missing'));
-  await folder.press('Enter');
-  await page.getByText('no such writable folder', { exact: true }).waitFor();
-  assert.equal((await profile())?.projectsDir, projectsDir, 'a refused folder is not stored');
+  assert.equal(await page.getByText('Projects folder').count(), 0, 'no projects folder setting: the user names a folder per project');
 
   const lang = page.getByRole('textbox', { name: 'Reply language' });
   await lang.fill('ru');

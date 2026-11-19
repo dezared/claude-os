@@ -3,17 +3,16 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Ctx } from '../context.ts';
-import type { VoiceStatus } from '../../shared/contract.ts';
+import { VOICE_MODEL_IDS, VOICE_MODELS, type VoiceLanguage, type VoiceModelId, type VoiceOptions, type VoiceStatus } from '../../shared/voice.ts';
 import { decodePcm16, trimSilence } from './audio.ts';
+import { promptLanguage, voiceOptions } from './options.ts';
 
-const VOICE_MODEL = 'whisper-small';
-const MODEL_BYTES = 251_846_613; // the files of the revision pinned in engine.ts
 const IDLE_KILL_MS = 10 * 60_000; // the loaded model holds over a gigabyte
 
-export type SpeechLanguage = 'ru' | 'en';
+export type SpeechLanguage = 'ru' | 'en'; // the language of the jargon prompt
 export type EngineRequest =
-  | { type: 'load'; dir: string; download: boolean }
-  | { type: 'transcribe'; id: number; dir: string; pcm: string; language: SpeechLanguage };
+  | { type: 'load'; dir: string; download: boolean; model: VoiceModelId }
+  | { type: 'transcribe'; id: number; dir: string; pcm: string; model: VoiceModelId; language: VoiceLanguage; prompt: SpeechLanguage };
 export type EngineReply =
   | { type: 'progress'; loaded: number }
   | { type: 'loaded' }
@@ -27,32 +26,46 @@ function dirBytes(dir: string): number {
   return readdirSync(dir, { recursive: true, withFileTypes: true }).reduce((sum, e) => (e.isFile() ? sum + statSync(join(e.parentPath, e.name)).size : sum), 0);
 }
 
+// All models share one cache folder, each under its repo. A marker is written after the whole model has loaded once;
+// whisper-small keeps the name it had when it was the only model, so an existing install stays installed.
+function modelFiles(root: string, model: VoiceModelId) {
+  return { files: join(root, 'model', VOICE_MODELS[model].repo), marker: join(root, model === 'whisper-small' ? 'installed' : `installed-${model}`) };
+}
+
+const isInstalled = (root: string, model: VoiceModelId) => existsSync(modelFiles(root, model).marker);
+
+function voiceStatus(root: string, model: VoiceModelId, run: { downloading: VoiceModelId | null; downloaded: number; error: string | null }): VoiceStatus {
+  return {
+    state: run.downloading === model ? 'downloading' : isInstalled(root, model) ? 'ready' : 'off',
+    model,
+    installed: VOICE_MODEL_IDS.filter((m) => isInstalled(root, m)),
+    modelBytes: VOICE_MODELS[model].bytes,
+    diskBytes: dirBytes(modelFiles(root, model).files),
+    downloaded: run.downloading === model ? run.downloaded : null,
+    dir: join(root, 'model'),
+    error: run.error,
+  };
+}
+
 export function registerVoice(ctx: Ctx): void {
   const { app } = ctx;
   const root = join(ctx.paths.data, 'voice');
   const modelDir = join(root, 'model');
-  const marker = join(root, 'installed'); // written after the whole model has loaded once
+  const options = (): VoiceOptions => ctx.settings?.voice() ?? voiceOptions(null, null);
+  const installed = (model: VoiceModelId) => isInstalled(root, model);
   let worker: ChildProcess | null = null;
-  let downloading = false;
+  let downloading: VoiceModelId | null = null;
   let downloaded = 0;
   let error: string | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
   let nextId = 1;
   const waiting = new Map<number, { resolve: (text: string) => void; reject: (e: Error) => void }>();
 
-  const status = (): VoiceStatus => ({
-    state: downloading ? 'downloading' : existsSync(marker) ? 'ready' : 'off',
-    model: VOICE_MODEL,
-    modelBytes: MODEL_BYTES,
-    diskBytes: dirBytes(modelDir),
-    downloaded: downloading ? downloaded : null,
-    dir: modelDir,
-    error,
-  });
+  const status = () => voiceStatus(root, options().model, { downloading, downloaded, error });
 
-  const setDownloading = (on: boolean) => {
-    downloading = on;
-    ctx.setBusy('voice-download', on);
+  const setDownloading = (model: VoiceModelId | null) => {
+    downloading = model;
+    ctx.setBusy('voice-download', model !== null);
     ctx.invalidate('voice');
   };
 
@@ -83,13 +96,13 @@ export function registerVoice(ctx: Ctx): void {
       ctx.invalidate('voice');
     } else if (m.type === 'loaded') {
       if (!downloading) return;
-      writeFileSync(marker, `${new Date().toISOString()} ${VOICE_MODEL}\n`);
-      setDownloading(false);
+      writeFileSync(modelFiles(root, downloading).marker, `${new Date().toISOString()} ${downloading}\n`);
+      ctx.audit('voice.install', downloading);
+      setDownloading(null);
       touch();
-      ctx.audit('voice.install', VOICE_MODEL);
     } else if (m.type === 'error' && m.id === null) {
       error = m.message;
-      setDownloading(false);
+      setDownloading(null);
     } else if (m.id !== null) {
       const w = waiting.get(m.id);
       waiting.delete(m.id);
@@ -119,7 +132,7 @@ export function registerVoice(ctx: Ctx): void {
       failAll(message);
       if (downloading) {
         error = message;
-        setDownloading(false);
+        setDownloading(null);
       }
     });
     worker = child;
@@ -128,40 +141,48 @@ export function registerVoice(ctx: Ctx): void {
 
   app.get('/api/voice', async () => status());
 
-  // The only request that downloads anything, and only the user's explicit "enable" sends it.
+  // The only request that downloads anything, and only the user's explicit "enable" sends it. One download at a time.
   app.post('/api/voice/enable', async () => {
-    if (!downloading && !existsSync(marker)) {
+    const { model } = options();
+    if (!downloading && !installed(model)) {
       error = null;
       downloaded = 0;
       mkdirSync(modelDir, { recursive: true });
-      setDownloading(true);
-      startWorker().send({ type: 'load', dir: modelDir, download: true } satisfies EngineRequest);
+      setDownloading(model);
+      startWorker().send({ type: 'load', dir: modelDir, download: true, model } satisfies EngineRequest);
     }
     return status();
   });
 
-  // Sent when recording starts: the model loads while the user speaks, not after.
+  // Sent when recording starts: the model loads while the user speaks, not after. The engine swaps models when the choice changed.
   app.post('/api/voice/warm', async () => {
-    if (!downloading && existsSync(marker)) {
-      startWorker().send({ type: 'load', dir: modelDir, download: false } satisfies EngineRequest);
+    const { model } = options();
+    if (!downloading && installed(model)) {
+      startWorker().send({ type: 'load', dir: modelDir, download: false, model } satisfies EngineRequest);
       touch();
     }
     return { ok: true };
   });
 
+  // Removes the chosen model; the folder goes with the last one.
   app.delete('/api/voice/model', async () => {
+    const { model } = options();
     stopWorker();
     failAll('voice model removed');
     error = null;
-    rmSync(root, { recursive: true, force: true });
-    setDownloading(false);
-    ctx.audit('voice.remove', VOICE_MODEL);
+    const { files, marker } = modelFiles(root, model);
+    rmSync(marker, { force: true });
+    rmSync(files, { recursive: true, force: true });
+    if (!VOICE_MODEL_IDS.some(installed)) rmSync(root, { recursive: true, force: true });
+    setDownloading(null); // stopping the worker ended any download
+    ctx.audit('voice.remove', model);
     return status();
   });
 
   app.post<{ Body: { pcm?: unknown } }>('/api/voice/transcribe', async (req) => {
     if (typeof req.body?.pcm !== 'string') throw httpError(400, 'pcm must be base64');
-    if (!existsSync(marker) || downloading) throw httpError(409, 'voice model is not installed');
+    const { model, language } = options();
+    if (!installed(model) || downloading) throw httpError(409, 'voice model is not installed');
     const speech = trimSilence(decodePcm16(req.body.pcm));
     if (!speech) return { text: '' };
     const started = Date.now();
@@ -170,9 +191,8 @@ export function registerVoice(ctx: Ctx): void {
     const text = await new Promise<string>((resolve, reject) => {
       waiting.set(id, { resolve, reject });
       ctx.setBusy('voice-transcribe', true);
-      // The profile's language is the user's speech; the model knows these two well, anything else gets English.
-      const language: SpeechLanguage = ctx.settings?.profile()?.language === 'ru' ? 'ru' : 'en';
-      startWorker().send({ type: 'transcribe', id, dir: modelDir, pcm: samples, language } satisfies EngineRequest);
+      const prompt = promptLanguage(language, ctx.settings?.profile()?.language ?? null);
+      startWorker().send({ type: 'transcribe', id, dir: modelDir, pcm: samples, model, language, prompt } satisfies EngineRequest);
     });
     touch();
     return { text, ms: Date.now() - started };

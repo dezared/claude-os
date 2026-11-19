@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { create } from 'zustand';
 import type { AskRequest, MicrotaskRequest } from './microtask';
 import { inPopout } from './popout';
+import { moveView } from './viewTransition';
 
 export type View =
   | { kind: 'home' }
@@ -11,10 +12,11 @@ export type View =
   | { kind: 'projects'; key?: string }
   | { kind: 'tools'; pane?: ToolsPane }
   | { kind: 'os-plugins' }
+  | { kind: 'kits'; id?: string }
   | { kind: 'settings'; section?: SettingsSection }
   | { kind: 'entity'; type: EntityType; id: string; project?: string }
-  | { kind: 'kanban'; board?: string }
-  | { kind: 'documents'; project?: string | null; pane?: 'documents' | 'knowledge' };
+  | { kind: 'documents'; project?: string | null; pane?: 'documents' | 'knowledge' }
+  | { kind: 'plugin'; screen: string; arg?: string }; // a screen a Claude OS plugin adds (lib/uiPlugins.tsx); arg: what it opens on, such as a project
 
 export type EntityType = 'project' | 'skill' | 'plugin' | 'mcp' | 'hook' | 'os-plugin' | 'agent';
 export type ToolsPane = 'skills' | 'agents' | 'mcp' | 'hooks' | 'plugins' | 'claude-md' | 'vault' | 'log';
@@ -71,8 +73,10 @@ function restoreView(): View {
   try {
     const raw = localStorage.getItem(VIEW_KEY);
     if (!raw) return { kind: 'home' };
-    const view = JSON.parse(raw) as View | { kind: 'tools'; pane: 'os-plugins' };
-    return view.kind === 'tools' && (view.pane as string) === 'os-plugins' ? { kind: 'os-plugins' } : view as View; // where it was before it became its own screen
+    const view = JSON.parse(raw) as View | { kind: 'tools'; pane: 'os-plugins' } | { kind: 'kanban'; board?: string };
+    // Where a screen was before it moved: the plugins pane became its own screen, the board became the Kanban+ plugin's.
+    if (view.kind === 'kanban') return { kind: 'plugin', screen: 'kanban', ...(view.board ? { arg: view.board } : {}) };
+    return view.kind === 'tools' && (view.pane as string) === 'os-plugins' ? { kind: 'os-plugins' } : view as View;
   } catch {
     return { kind: 'home' };
   }
@@ -110,14 +114,14 @@ export const useApp = create<AppState>((set, get) => ({
     const { history, historyAt } = get();
     if (sameView(history[historyAt], view)) return set({ view });
     const next = [...history.slice(0, historyAt + 1), view].slice(-HISTORY_LIMIT);
-    set({ view, history: next, historyAt: next.length - 1 });
+    moveView(get().view, view, () => set({ view, history: next, historyAt: next.length - 1 }));
   },
   step: (by) => {
     const { history, historyAt } = get();
     const view = history[historyAt + by];
     if (!view) return;
     localStorage.setItem(VIEW_KEY, JSON.stringify(view));
-    set({ view, historyAt: historyAt + by });
+    moveView(get().view, view, () => set({ view, historyAt: historyAt + by }));
   },
   // A closed tab is not a place to go back to. Runs after the view has moved off it.
   forgetTab: (id) => {

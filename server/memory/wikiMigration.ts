@@ -246,11 +246,16 @@ export function registerWikiMigration(ctx: Ctx, store: Store, sync: WikiSync): G
     }
   });
   type P = { Params: { project: string } };
-  ctx.app.post<P>('/api/memory/wiki/:project/prepare', async (req) => prepare(m, req.params.project));
+  // A migration reads and rewrites the whole project: never from a vault the start pass has not checked yet.
+  const loaded = <T>(fn: () => T): T => {
+    if (!store.complete()) throw httpError(503, 'memory is still loading: try again in a few seconds');
+    return fn();
+  };
+  ctx.app.post<P>('/api/memory/wiki/:project/prepare', async (req) => loaded(() => prepare(m, req.params.project)));
   ctx.app.get<P>('/api/memory/wiki/:project', async (req) => viewOf(req.params.project, m.runs.get(req.params.project)));
-  ctx.app.post<P>('/api/memory/wiki/:project/verify', async (req) => verifyRun(m, req.params.project));
-  ctx.app.post<P & { Body: { connect?: unknown } }>('/api/memory/wiki/:project/apply', async (req) => applyRun(m, req.params.project, req.body?.connect === true));
-  ctx.app.post<P>('/api/memory/wiki/:project/undo', async (req) => undoRun(m, req.params.project));
+  ctx.app.post<P>('/api/memory/wiki/:project/verify', async (req) => loaded(() => verifyRun(m, req.params.project)));
+  ctx.app.post<P & { Body: { connect?: unknown } }>('/api/memory/wiki/:project/apply', async (req) => loaded(() => applyRun(m, req.params.project, req.body?.connect === true)));
+  ctx.app.post<P>('/api/memory/wiki/:project/undo', async (req) => loaded(() => undoRun(m, req.params.project)));
   ctx.app.delete<P>('/api/memory/wiki/:project', async (req) => discard(m, req.params.project));
   return guardOf(m);
 }

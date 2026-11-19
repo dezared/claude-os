@@ -12,6 +12,7 @@ const VERSION = /^\d+\.\d+\.\d+([-+][\w.-]+)?$/;
 const EVENT = /^[A-Z][A-Za-z]+$/;
 const PLUGIN_DIR = '{pluginDir}';
 const UI_FILE = /^ui(\/[\w.-]+)+\.js$/;
+const SERVER_FILE = /^server\/[\w.-]+\.ts$/;
 export const isUiFile = (rel: string) => UI_FILE.test(rel) && !rel.split('/').includes('..');
 const CLAUDE_MD_TARGET = 'claude-md';
 const DOWNLOAD_PLACE = /^\{(claudeDir|pluginData)\}\//;
@@ -56,6 +57,7 @@ export interface Manifest {
   mcp: Record<string, ServerSpec>;
   ui: UiSpec | null;
   kit: string | null;
+  server: string | null; // the entry of the part the Claude OS server loads, relative to the folder
 }
 
 /** A row of `kit/files.json`: a template and who owns the file it renders to; `stacks` and `when` limit where it applies. */
@@ -92,6 +94,20 @@ const fenced = (plugin: string, dep: string, body: string) => {
   return `${start}\n${body}\n${end}`;
 };
 
+/** Where the block sits in a file, wherever Claude put it. */
+export function findBlock(file: string, plugin: string, dep: string): { from: number; to: number; text: string } | null {
+  const [start, end] = fence(plugin, dep);
+  const from = file.indexOf(start);
+  const close = from < 0 ? -1 : file.indexOf(end, from);
+  return close < 0 ? null : { from, to: close + end.length, text: file.slice(from, close + end.length) };
+}
+
+export function cutBlock(file: string, at: { from: number; to: number }): string {
+  const before = file.slice(0, at.from).trimEnd();
+  const after = file.slice(at.to).trimStart();
+  const joined = before && after ? `${before}\n\n${after}` : before || after;
+  return joined && !joined.endsWith('\n') ? `${joined}\n` : joined;
+}
 
 /** Where a dependency other than config points, and what a good value looks like. */
 const TARGETS: Record<Exclude<OsPluginDependencyKind, 'config'>, { key: string; ok: (v: string) => boolean; why: string }> = {
@@ -158,6 +174,7 @@ function checkIdentity(raw: Obj, folder: string, dir: string, errors: string[]) 
   for (const field of ['name', 'description', 'author']) if (!text(raw[field])) errors.push(`${field} is required`);
   if (typeof raw.version !== 'string' || !VERSION.test(raw.version)) errors.push('version must look like 1.2.3');
   if (treeHash(dir) === null) errors.push('symlinks are not allowed in a plugin');
+  if (raw.enabledByDefault !== undefined && typeof raw.enabledByDefault !== 'boolean') errors.push('enabledByDefault must be true or false');
 }
 
 function checkLooks(raw: Obj, errors: string[]) {
@@ -254,7 +271,16 @@ function readKit(contains: Obj, dir: string, errors: string[]): string | null {
   return null;
 }
 
-type Parts = Pick<Manifest, 'skills' | 'hooks' | 'mcp' | 'ui' | 'kit'>;
+function readServer(contains: Obj, dir: string, errors: string[]): string | null {
+  const entry = contains.server;
+  if (entry === undefined) return null;
+  if (typeof entry !== 'string' || !SERVER_FILE.test(entry)) errors.push('contains.server must be a .ts file right under server/');
+  else if (!existsSync(join(dir, entry))) errors.push(`contains.server: ${entry} is missing`);
+  else return entry;
+  return null;
+}
+
+type Parts = Pick<Manifest, 'skills' | 'hooks' | 'mcp' | 'ui' | 'kit' | 'server'>;
 
 function readContains(value: unknown, dir: string, errors: string[]): Parts | null {
   if (!isObj(value)) {
@@ -262,8 +288,8 @@ function readContains(value: unknown, dir: string, errors: string[]): Parts | nu
     return null;
   }
   for (const key of Object.keys(value)) if (!(OS_PLUGIN_COMPONENTS as readonly string[]).includes(key)) errors.push(`contains.${key} is not a known component`);
-  const parts: Parts = { skills: readSkills(value, dir, errors), hooks: readHooks(value, dir, errors), mcp: readMcp(value, dir, errors), ui: readUi(value, dir, errors), kit: readKit(value, dir, errors) };
-  if (parts.skills.length + parts.hooks.length + Object.keys(parts.mcp).length === 0 && !parts.ui && !parts.kit && !errors.some((e) => /skill|hook|server|contains/.test(e))) errors.push('contains lists nothing');
+  const parts: Parts = { skills: readSkills(value, dir, errors), hooks: readHooks(value, dir, errors), mcp: readMcp(value, dir, errors), ui: readUi(value, dir, errors), kit: readKit(value, dir, errors), server: readServer(value, dir, errors) };
+  if (parts.skills.length + parts.hooks.length + Object.keys(parts.mcp).length === 0 && !parts.ui && !parts.kit && !parts.server && !errors.some((e) => /skill|hook|server|contains/.test(e))) errors.push('contains lists nothing');
   return parts;
 }
 

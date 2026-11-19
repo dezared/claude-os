@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 
-// The dialog of a slash command opening a control that lives elsewhere in the work tab. Home keeps its composer mounted under the tabs: the id says whose.
-type TabCommand = 'git' | 'mode' | 'running';
+// The dialog of a slash command opening a control that lives elsewhere in the work tab, or the composer asking its transcript
+// for the bottom. Home keeps its composer mounted under the tabs: the id says whose.
+type TabCommand = 'git' | 'mode' | 'running' | 'bottom';
 
 export const sendTabCommand = (tabId: string, what: TabCommand) => window.dispatchEvent(new CustomEvent(`claude-os:${what}`, { detail: tabId }));
 

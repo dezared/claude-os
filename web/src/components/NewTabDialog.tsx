@@ -68,7 +68,7 @@ function RecentRow({ s, busyElsewhere, where, onPick }: { s: SessionInfo; busyEl
         disabled={busyElsewhere}
         title={busyElsewhere ? t('newTab.liveElsewhere') : sessionTitle(s)}
         onClick={onPick}
-        className={cn('press flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left', busyElsewhere ? 'opacity-50' : 'hover:bg-white/[.06]')}
+        className={cn('press flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left', busyElsewhere ? 'opacity-50' : 'hover:bg-fg/[.06]')}
       >
         <StatusDot status={s.status} className="flex-none" />
         <span className="min-w-0 flex-1 truncate text-[13px] text-soft">{sessionTitle(s)}</span>

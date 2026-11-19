@@ -79,7 +79,8 @@ test('vault: copied notes count as being in the vault, though the project settin
   assert.equal(await stat('Заметок в хранилище').textContent(), '0');
   await copy.click();
   await page.getByText(/^Скопировано заметок: 1/).waitFor();
-  await page.waitForFunction(() => [...document.querySelectorAll('.sheet b')].slice(0, 4).map((b) => b.textContent).join() === '1,1,0,0'); // format issues follow
+  // In the vault, projects with notes, changed this week, still outside; format issues follow.
+  await page.waitForFunction(() => [...document.querySelectorAll('.sheet b')].slice(0, 4).map((b) => b.textContent).join() === '1,1,+1,0');
   await page.evaluate(() => localStorage.setItem('claude-os.view', JSON.stringify({ kind: 'home' })));
   await page.reload();
   await page.getByRole('textbox', { name: /Начни новый проект/ }).waitFor();

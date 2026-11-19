@@ -91,7 +91,7 @@ export function setDesktopPrefs(patch: Partial<Prefs>) {
 
 /** Tabs whose work closing the app would touch. A read-only tab watches a session that runs elsewhere. */
 export function activeTabs(tabs: Tab[]): Tab[] {
-  return tabs.filter((t) => t.kind !== 'readonly' && (t.status === 'working' || t.status === 'waiting_permission' || t.status === 'blocked' || t.attention || t.queued > 0));
+  return tabs.filter((t) => t.kind !== 'readonly' && (t.status === 'working' || t.status === 'waiting_permission' || t.status === 'blocked' || t.attention || t.queued > 0 || t.subagents > 0));
 }
 
 export type TabMark = Pick<Tab, 'status' | 'attention'>;

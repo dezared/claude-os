@@ -33,7 +33,7 @@ export function ProjectSelect({
         label: name,
         content: (
           <span className="flex min-w-0 items-center gap-1.5">
-            <ProjectIcon project={p.key} name={p.name} color={color(p.key)} size={14} />
+            <ProjectIcon project={p.key} name={p.name} color={color(p.key)} size={14} folder={p.folder} />
             <span className="max-w-80 min-w-0 truncate">{name}</span>
             <i data-project-color className="block size-1.5 flex-none rounded-full" style={{ background: color(p.key) }} />
           </span>

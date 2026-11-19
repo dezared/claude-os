@@ -1,38 +1,28 @@
 {
   "id": "agentation",
   "name": "Agentation",
-  "description": "Annotate Claude OS's own interface with element-bound fixes for Claude. The toolbar is in the bottom right corner as soon as the plugin is enabled; /agentation hides it and brings it back. agentation itself is under PolyForm Shield 1.0.0, see LICENSE.agentation.",
-  "descriptionRu": "Заметки к интерфейсу Claude OS с привязкой к элементам, которые видит Claude. Панель появляется в правом нижнем углу сразу после включения; /agentation прячет и возвращает её. Сам agentation под лицензией PolyForm Shield 1.0.0, см. LICENSE.agentation.",
+  "description": "Annotate Claude OS's own interface with element-bound fixes for Claude. The toolbar is in the bottom right corner while the plugin is enabled and goes when it is disabled. agentation itself is under PolyForm Shield 1.0.0, see LICENSE.agentation.",
+  "descriptionRu": "Заметки к интерфейсу Claude OS с привязкой к элементам, которые видит Claude. Панель в правом нижнем углу, пока плагин включён, и исчезает при его выключении. Сам agentation под лицензией PolyForm Shield 1.0.0, см. LICENSE.agentation.",
   "features": [
     "A toolbar over every screen and every separate window",
     "A note bound to the element it is about, inside open dialogs too",
+    "Claude OS keeps the agentation server running while the plugin is enabled and restarts it if it fails",
     "Notes wait in the browser while the server is away and arrive when it returns",
-    "A mark beside the message field shows whether notes reach Claude; a click on it hides the toolbar"
+    "The root tab and the Claude OS project's work tabs read and close notes with the agentation tools"
   ],
   "featuresRu": [
     "Панель поверх всех экранов и отдельных окон",
     "Заметка привязана к элементу, в том числе внутри открытых диалогов",
+    "Claude OS сам держит сервер agentation запущенным, пока плагин включён, и перезапускает его при сбое",
     "Пока сервер недоступен, заметки ждут в браузере и уходят, когда он вернётся",
-    "Метка у поля ввода показывает, доходят ли заметки до Claude; клик по ней прячет панель"
+    "Главная вкладка и рабочие вкладки проекта Claude OS читают и закрывают заметки инструментами agentation"
   ],
   "icon": "message-square-plus",
-  "version": "1.1.0",
+  "version": "1.5.0",
   "author": "Claude OS",
-  "dependencies": [
-    {
-      "id": "mcp-server",
-      "kind": "service",
-      "level": "recommended",
-      "url": "http://127.0.0.1:4747/health",
-      "title": "agentation MCP server",
-      "titleRu": "MCP-сервер agentation",
-      "why": "Without it notes stay in the browser and Claude does not see them.",
-      "whyRu": "Без него заметки остаются в браузере, и Claude их не видит.",
-      "task": "Make the agentation MCP server available to Claude on port 4747. Look at how it is configured in Claude's MCP settings first; add it there only if it is missing, and check that the address above answers."
-    }
-  ],
   "contains": {
     "skills": ["agentation-annotations"],
+    "server": "server/index.ts",
     "ui": {
       "entry": "ui/index.js"
     }

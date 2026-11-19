@@ -28,7 +28,7 @@ function TriState({ state, stamp, label, disabled, onChange }: { state: RowState
 
 function MenuLine({ icon, children, onClick, danger }: { icon: ReactNode; children: ReactNode; onClick: () => void; danger?: boolean }) {
   return (
-    <button type="button" onClick={onClick} className={cn('press flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-raised', danger ? 'text-rose-300' : 'text-soft hover:text-fg')}>
+    <button type="button" onClick={onClick} className={cn('press flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-raised', danger ? 'text-rose-300 light:text-rose-700' : 'text-soft hover:text-fg')}>
       <span className="flex-none text-dim">{icon}</span>{children}
     </button>
   );
@@ -39,7 +39,7 @@ function Row({ row, stamp, active, busy, menuOpen, setMenu, onOpen, onToggle, ch
 }) {
   const on = row.state === 'on';
   return (
-    <div className={cn('group flex items-center gap-1.5 rounded-md pl-1.5', active ? 'bg-white/[.1]' : 'hover:bg-raised')} onContextMenu={(e) => { e.preventDefault(); setMenu(true); }}>
+    <div className={cn('group flex items-center gap-1.5 rounded-md pl-1.5', active ? 'bg-fg/[.1]' : 'hover:bg-raised')} onContextMenu={(e) => { e.preventDefault(); setMenu(true); }}>
       <TriState state={row.state} stamp={stamp} disabled={busy} label={`${on ? t('git.unstage') : t('git.stage')}: ${row.path}`} onChange={onToggle} />
       <button type="button" onClick={onOpen} title={row.oldPath ? `${row.oldPath} → ${row.path}` : row.path} className="press flex min-w-0 flex-1 items-baseline gap-1.5 py-0.5 text-left font-mono text-[11.5px]">
         <FileName f={row} />

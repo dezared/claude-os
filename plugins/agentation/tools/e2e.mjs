@@ -1,18 +1,22 @@
 // The plugin through a real Claude OS server and the fake CLI, in throwaway directories, against a fake MCP endpoint. Set CLAUDE_OS_WEB_DIST to test another build.
-// Anything aimed at the real port 4747 is aborted and fails the run: no annotation can reach the real server.
+// Anything aimed at the real port 4747 is aborted and fails the run: no annotation can reach the real server. The daemon the
+// plugin keeps runs on its own port with the in-memory store, so the user's ~/.agentation is not touched either.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
+import { importNotes } from '../server/importNotes.ts';
 
 const PLUGIN = join(import.meta.dirname, '..');
 const REPO = join(PLUGIN, '../..');
 const PORT = 47932;
 const FAKE_PORT = 47933;
+const DAEMON_PORT = 47934;
+const daemon = `http://127.0.0.1:${DAEMON_PORT}`;
 const base = `http://127.0.0.1:${PORT}`;
 const SHOTS = process.env.AGENTATION_SHOTS ?? tmpdir();
 
@@ -22,6 +26,7 @@ const vendorRequests = [];
 const realPort = [];
 const sends = [];
 const hits = [];
+const proxied = [];
 const annotations = [];
 
 function startFake() {
@@ -60,19 +65,20 @@ const call = (path, body) => page.evaluate(async ({ path, body }) => {
   return r.json();
 }, { path, body });
 
+const daemonUp = () => fetch(`${daemon}/health`).then((r) => r.ok, () => false);
+const serverStatus = async () => (await call('/api/os-plugins')).rows.find((r) => r.id === 'agentation').serverStatus;
+async function until(what, check, ms = 20000) {
+  for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) if (await check()) return;
+  assert.fail(`timed out: ${what}`);
+}
+
 const goView = (view) => page.evaluate((v) => {
   localStorage.setItem('claude-os.view', JSON.stringify(v));
   location.reload();
 }, view);
 const box = () => page.getByRole('textbox', { name: /Сообщение|agentation-test/ }).first();
-const send = async (text) => {
-  await box().fill(text);
-  await box().press('Escape');
-  await box().press('Enter');
-};
 const toolbar = () => page.locator('agentation-toolbar');
 const launcher = () => page.locator('[data-agentation-toolbar]');
-const mark = () => page.getByTestId('agentation-mark').last();
 const note = () => page.locator('[data-annotation-popup] textarea');
 
 async function activateToolbar() {
@@ -87,7 +93,6 @@ before(async () => {
   const cwd = join(dir, 'proj');
   mkdirSync(cwd);
   writeFileSync(join(cwd, 'a.txt'), 'x\n');
-  cpSync(PLUGIN, join(dir, 'config/plugins/agentation'), { recursive: true });
   server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(REPO, 'server/index.ts')], {
     stdio: 'ignore',
     env: {
@@ -99,6 +104,8 @@ before(async () => {
       CLAUDE_OS_VAULT: join(dir, 'vault'),
       CLAUDE_CONFIG_DIR: join(dir, 'claude'),
       CLAUDE_OS_CLAUDE_BIN: join(REPO, 'server/chat/fixtures/fake-claude.mjs'),
+      CLAUDE_OS_AGENTATION_PORT: String(DAEMON_PORT),
+      AGENTATION_STORE: 'memory',
     },
   });
   for (let i = 0; i < 100; i++) {
@@ -113,7 +120,8 @@ before(async () => {
   browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   context = await browser.newContext({ locale: 'ru-RU', viewport: { width: 1600, height: 1000 } });
   context.setDefaultTimeout(60000);
-  await context.addInitScript((port) => localStorage.setItem('agentation.endpoint', `http://127.0.0.1:${port}`), FAKE_PORT);
+  // Until the last test, which leaves the toolbar on its default address (e2e.default-endpoint), the toolbar talks to the fake.
+  await context.addInitScript((port) => localStorage.getItem('e2e.default-endpoint') || localStorage.getItem('agentation.endpoint') || localStorage.setItem('agentation.endpoint', `http://127.0.0.1:${port}`), FAKE_PORT);
   await context.route(/^https?:\/\/[^/]+:4747\//, (route) => {
     realPort.push(route.request().url());
     return route.abort();
@@ -123,6 +131,7 @@ before(async () => {
   page.on('request', (r) => {
     if (r.url().includes('agentation.vendor')) vendorRequests.push(r.url());
     if (r.url().endsWith('/send')) sends.push(r.url());
+    if (r.url().startsWith(`${base}/api/plugins/agentation/proxy/`)) proxied.push(`${r.method()} ${r.url().slice(base.length)}`);
   });
   await page.goto(`${base}/auth?token=${token}`);
   tabId = (await call('/api/tabs', { cwd, title: 'agentation-test' })).id;
@@ -130,6 +139,9 @@ before(async () => {
   assert.deepEqual(plan.conflicts, []);
   await call('/api/os-plugins/agentation/enable', { confirmed: true, sha: plan.sha });
   assert.ok(existsSync(join(dir, 'claude/skills/agentation-annotations/SKILL.md')), 'the skill went to the throwaway Claude dir');
+  await until('the daemon runs', async () => (await serverStatus())?.state === 'running');
+  assert.ok(await daemonUp());
+  vendorRequests.length = 0; // the page already open while the daemon came up loaded the toolbar once: the tests count from their own load
 });
 
 after(async () => {
@@ -139,53 +151,37 @@ after(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('just enabled: the toolbar and the mark are there without any command', async () => {
+test('just enabled: the toolbar fades in without any command, a session is made, no mark and no /agentation command', async () => {
   await goView({ kind: 'tab', id: tabId });
   await launcher().waitFor();
-  await mark().waitFor();
-  assert.ok(vendorRequests.length > 0);
-  assert.equal(await page.evaluate(() => localStorage.getItem('agentation.on')), null);
-  await page.screenshot({ path: join(SHOTS, 'agentation-enabled.png') });
-  await box().click();
-  await page.keyboard.type('/agent');
-  await page.getByText(/Заметки к интерфейсу/).waitFor();
-  await box().fill('');
-});
-
-test('turned off: the bundle is not requested after a reload, no toolbar', async () => {
-  await send('/agentation off');
-  await toolbar().waitFor({ state: 'detached' });
-  vendorRequests.length = 0;
-  await page.reload();
-  await box().waitFor();
-  await page.waitForTimeout(1500);
-  assert.deepEqual(vendorRequests, []);
-  assert.equal(await toolbar().count(), 0);
-  assert.equal(await page.getByTestId('agentation-mark').count(), 0);
-});
-
-test('/agentation on: fades in, the mark shows the connection, a session is made', async () => {
-  await send('/agentation nonsense');
-  await page.getByText('Использование: /agentation').waitFor();
-  assert.deepEqual(vendorRequests, []);
-  await send('/agentation on');
-  await toolbar().waitFor({ state: 'attached' });
-  assert.equal(vendorRequests.length, 1);
-  await launcher().waitFor();
   assert.equal(await launcher().evaluate((el) => getComputedStyle(el).animationName), 'agn-in');
-  await page.locator('[data-testid="agentation-mark"][data-link="connected"]').last().waitFor();
-  await launcher().waitFor();
-  const place = await launcher().boundingBox();
-  assert.ok(place.y > 900 && place.x > 1200, `the toolbar keeps its corner, away from the title bar: ${JSON.stringify(place)}`);
+  assert.equal(await page.getByTestId('agentation-mark').count(), 0);
+  assert.equal(vendorRequests.length, 1, vendorRequests.join(', '));
+  for (let i = 0; i < 100 && !hits.includes('POST /sessions'); i++) await page.waitForTimeout(100);
   assert.ok(hits.includes('POST /sessions'), hits.join(', '));
   assert.equal(await page.evaluate(() => localStorage.getItem('agentation-session-/')), 's1');
-  await page.screenshot({ path: join(SHOTS, 'agentation-on.png') });
+  const place = await launcher().boundingBox();
+  assert.ok(place.y > 900 && place.x > 1200, `the toolbar keeps its corner, away from the title bar: ${JSON.stringify(place)}`);
+  await page.screenshot({ path: join(SHOTS, 'agentation-enabled.png') });
+  await page.evaluate(() => localStorage.setItem('claude-os.theme', 'light'));
+  await page.reload();
+  await launcher().waitFor();
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: join(SHOTS, 'agentation-enabled-light.png') });
+  await page.evaluate(() => localStorage.removeItem('claude-os.theme'));
+  await page.reload();
+  await launcher().waitFor();
+  await box().click();
+  await page.keyboard.type('/agentation');
+  await page.waitForTimeout(500);
+  const menu = await page.getByRole('listbox').allTextContents();
+  assert.ok(!menu.some((m) => /\/agentation(?![-\w])/.test(m)), `no /agentation command: ${menu.join(' | ')}`);
+  await box().fill('');
 });
 
 test('stays on after a reload, reduced motion drops the fade, nothing blocks the drag region', async () => {
   await page.reload();
   await toolbar().waitFor({ state: 'attached' });
-  await mark().waitFor();
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await launcher().evaluate((el) => getComputedStyle(el).animationName), 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -209,7 +205,9 @@ test('a note on an element reaches the endpoint with its place', async () => {
   for (let i = 0; i < 50 && annotations.length === 0; i++) await page.waitForTimeout(100);
   assert.equal(annotations.length, 1, hits.join(', '));
   assert.equal(annotations[0].comment, 'Кнопка съехала');
-  assert.match(annotations[0].elementPath, /max-h/);
+  // ChipInput puts `relative` first on the field, and agentation names a step of the short path by its first class: the full path shows the element.
+  assert.equal(annotations[0].element, 'textarea');
+  assert.match(annotations[0].fullPath, / > textarea\.relative$/);
   assert.equal(annotations[0].sessionId, 's1');
   const pin = await page.locator('[data-annotation-marker]').first().boundingBox();
   const target = await box().boundingBox();
@@ -268,8 +266,7 @@ test('works on another view and in a popout window', async () => {
 
 test('the server goes down: quiet local state, the note stays in the browser; it comes back: the note arrives', async () => {
   await fake.close();
-  await page.locator('[data-testid="agentation-mark"][data-link="local"]').last().waitFor({ timeout: 25000 });
-  await page.getByText(/заметки остаются в браузере/).first().waitFor();
+  await page.getByText(/заметки остаются в браузере/).first().waitFor({ timeout: 25000 });
   await page.screenshot({ path: join(SHOTS, 'agentation-local.png') });
   const before = annotations.length;
   await activateToolbar();
@@ -285,12 +282,97 @@ test('the server goes down: quiet local state, the note stays in the browser; it
   assert.match(stored, /Пока сервер лежит/);
 
   fake = await startFake();
-  await page.locator('[data-testid="agentation-mark"][data-link="connected"]').last().waitFor({ timeout: 25000 });
+  await page.getByText(/снова на связи/).first().waitFor({ timeout: 25000 });
   for (let i = 0; i < 100 && !annotations.some((a) => a.comment === 'Пока сервер лежит'); i++) await page.waitForTimeout(100);
   assert.ok(annotations.some((a) => a.comment === 'Пока сервер лежит'), hits.slice(-10).join(', '));
 });
 
-test('/agentation off: fades out and goes, stays off after a reload, no bundle requested; nothing reached Claude or the real port', async () => {
+// Notes as the toolbar keeps them in the browser before any server saw them: local ids, no session, no `_syncedTo`.
+const offlineNote = (id, comment, path) => ({ id, x: 30, y: 120, comment, element: 'min flex', elementPath: path, timestamp: Date.now() - 60_000, boundingBox: { x: 8, y: 100, width: 280, height: 700 }, nearbyText: '', cssClasses: 'min-h-0, flex-1', isFixed: false, fullPath: `body > div#root > ${path}`, accessibility: '', computedStyles: '', nearbyElements: '', attributes: {} });
+const OFFLINE = [offlineNote('1794560131759', 'Офлайн-заметка один', '.sheet > .flex > .min-h-0'), offlineNote('1794560356149', 'Офлайн-заметка два', '.sheet > .min-h-0 > section')];
+const arrived = (comment) => annotations.filter((a) => a.comment === comment).length;
+
+test('a page opened while the server was away uploads its notes once the server answers, without a reload, and only once', async () => {
+  await fake.close();
+  await page.evaluate((notes) => {
+    localStorage.removeItem('agentation-session-/');
+    localStorage.setItem('feedback-annotations-/', JSON.stringify(notes));
+  }, OFFLINE);
+  await page.reload();
+  await launcher().waitFor();
+  await page.getByText(/заметки остаются в браузере/).first().waitFor({ timeout: 25000 });
+  annotations.length = 0;
+
+  fake = await startFake();
+  await until('the offline notes reach the server', async () => OFFLINE.every((n) => arrived(n.comment) === 1));
+  assert.equal(await page.evaluate(() => localStorage.getItem('agentation-session-/')), 's1');
+  await page.reload();
+  await launcher().waitFor();
+  await page.waitForTimeout(1500);
+  assert.deepEqual(OFFLINE.map((n) => arrived(n.comment)), [1, 1], 'a reload uploads nothing twice');
+});
+
+const OWN_PORT = 47935;
+const own = `http://127.0.0.1:${OWN_PORT}`;
+const startOwn = () => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(PLUGIN, 'server/daemon.ts'), '--port', String(OWN_PORT)], { stdio: ['pipe', 'ignore', 'ignore'], env: { ...process.env, AGENTATION_STORE: 'memory' } });
+const ownPending = async () => (await (await fetch(`${own}/pending`)).json()).annotations.map((a) => a.comment);
+
+test('the real daemon: a page opened before it started gets its notes to it once it answers, and a reload adds no copies', async () => {
+  await page.evaluate(({ url, notes }) => {
+    localStorage.setItem('agentation.endpoint', url);
+    localStorage.removeItem('agentation-session-/');
+    localStorage.setItem('feedback-annotations-/', JSON.stringify(notes));
+  }, { url: own, notes: OFFLINE });
+  await page.reload();
+  await launcher().waitFor();
+  await page.getByText(/заметки остаются в браузере/).first().waitFor({ timeout: 25000 });
+  const proc = startOwn();
+  try {
+    await until('the offline notes reach the daemon', async () => {
+      const got = await ownPending().catch(() => []);
+      return OFFLINE.every((n) => got.includes(n.comment));
+    }, 30000);
+    await page.reload();
+    await launcher().waitFor();
+    await page.waitForTimeout(1500);
+    const got = await ownPending();
+    assert.deepEqual(OFFLINE.map((n) => got.filter((c) => c === n.comment).length), [1, 1], 'a reload uploads nothing twice');
+  } finally {
+    proc.kill();
+    await page.evaluate((port) => localStorage.setItem('agentation.endpoint', `http://127.0.0.1:${port}`), FAKE_PORT);
+  }
+});
+
+test('notes already imported to the daemon: the page adopts the server copies and sends none of its own', async () => {
+  const proc = startOwn();
+  try {
+    await until('the daemon answers', () => fetch(`${own}/health`).then((r) => r.ok, () => false));
+    const { sessionId } = await importNotes(own, `${base}/`, OFFLINE);
+    await page.evaluate(({ url, notes }) => {
+      localStorage.setItem('agentation.endpoint', url);
+      localStorage.removeItem('agentation-session-/');
+      localStorage.setItem('feedback-annotations-/', JSON.stringify(notes));
+    }, { url: own, notes: OFFLINE });
+    await page.reload();
+    await launcher().waitFor();
+    await until('the page joined the import session', async () => (await page.evaluate(() => localStorage.getItem('agentation-session-/'))) === sessionId);
+    await page.waitForTimeout(1500);
+    const got = await ownPending();
+    assert.deepEqual(OFFLINE.map((n) => got.filter((c) => c === n.comment).length), [1, 1], 'no copies of the imported notes');
+    await activateToolbar();
+    await until('the pins stay on the page', async () => (await page.locator('[data-annotation-marker]').count()) === 2, 5000);
+  } finally {
+    proc.kill();
+    await page.evaluate((port) => localStorage.setItem('agentation.endpoint', `http://127.0.0.1:${port}`), FAKE_PORT);
+  }
+});
+
+const flip = async (action) => {
+  const plan = await call('/api/os-plugins/agentation/preview', { action });
+  await call(`/api/os-plugins/agentation/${action}`, { confirmed: true, sha: plan.sha });
+};
+
+test('disabling the plugin fades the toolbar out; after a reload no bundle and no polling; nothing reached Claude or the real port', async () => {
   await toolbar().evaluate((el) => {
     window.__classes = [];
     new MutationObserver(() => window.__classes.push(el.className)).observe(el, { attributes: true, attributeFilter: ['class'] });
@@ -302,13 +384,11 @@ test('/agentation off: fades out and goes, stays off after a reload, no bundle r
     };
     sample();
   });
-  await send('/agentation off');
+  await flip('disable');
   await toolbar().waitFor({ state: 'detached' });
-  await page.getByTestId('agentation-mark').first().waitFor({ state: 'detached' });
   assert.deepEqual(await page.evaluate(() => window.__classes), ['agn-host agn-leaving']);
   const opacity = await page.evaluate(() => window.__opacity);
   assert.ok(opacity.some((o) => o > 0 && o < 1), `a real fade, not a cut: ${opacity.join(' ')}`);
-  assert.equal(await page.evaluate(() => localStorage.getItem('agentation.on')), '0');
   vendorRequests.length = 0;
   hits.length = 0;
   await page.reload();
@@ -316,21 +396,63 @@ test('/agentation off: fades out and goes, stays off after a reload, no bundle r
   await page.waitForTimeout(1500);
   assert.deepEqual(vendorRequests, []);
   assert.equal(await toolbar().count(), 0);
-  assert.deepEqual(hits, [], 'off means no polling');
+  assert.deepEqual(hits, [], 'disabled means no polling');
   assert.deepEqual(sends, []);
   assert.deepEqual(realPort, []);
   assert.deepEqual(errors, []);
+  await until('the daemon stopped', async () => !(await daemonUp()));
+  assert.equal(await serverStatus(), null);
 });
 
-test('disabling and enabling the plugin brings the toolbar back after an earlier off', async () => {
-  assert.equal(await page.evaluate(() => localStorage.getItem('agentation.on')), '0');
-  const flip = async (action) => {
-    const plan = await call('/api/os-plugins/agentation/preview', { action });
-    await call(`/api/os-plugins/agentation/${action}`, { confirmed: true, sha: plan.sha });
-  };
-  await flip('disable');
-  await page.waitForFunction(() => localStorage.getItem('agentation.on') === null);
+test('enabling the plugin again brings the toolbar back, even after the toolbar hid itself for the session', async () => {
+  await page.evaluate(() => sessionStorage.setItem('agentation-session-toolbar-hidden', '1'));
   await flip('enable');
   await launcher().waitFor();
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('agentation-session-toolbar-hidden')), null);
+  assert.deepEqual(errors, []);
+});
+
+test('the daemon Claude OS keeps: with no address set, a note from the toolbar reaches it through Claude OS and a Claude OS tab reads it with its tools', async () => {
+  await until('the daemon runs again', async () => (await serverStatus())?.state === 'running');
+  assert.equal((await fetch(`${base}/api/plugins/agentation/proxy/health`)).status, 401, 'the proxy sits behind the Claude OS cookie');
+  // The fake's session s1 is unknown to the fresh in-memory store (the user's daemon keeps ~/.agentation/store.db, so theirs stay
+  // known), and the earlier tests' pins sit where this note goes: a click on a pin edits that note instead.
+  await page.evaluate(() => {
+    localStorage.setItem('e2e.default-endpoint', '1');
+    localStorage.removeItem('agentation.endpoint');
+    localStorage.removeItem('agentation-session-/');
+    localStorage.removeItem('feedback-annotations-/');
+  });
+  proxied.length = 0;
+  await goView({ kind: 'tab', id: tabId });
+  await launcher().waitFor();
+  await activateToolbar();
+  const r = await page.locator('[data-file-row="a.txt"]').boundingBox();
+  await page.mouse.click(r.x + 20, r.y + 8);
+  await note().waitFor();
+  await note().fill('Через демон');
+  await note().press('Enter');
+  await note().waitFor({ state: 'detached' });
+  await until('the daemon has the note', async () => JSON.stringify(await (await fetch(`${daemon}/pending`)).json()).includes('Через демон'));
+  assert.equal(await page.evaluate(() => localStorage.getItem('agentation.endpoint')), null, 'no address was set');
+  for (const call of ['GET /api/plugins/agentation/proxy/health', 'POST /api/plugins/agentation/proxy/sessions']) assert.ok(proxied.includes(call), `${call} went through Claude OS: ${proxied.join(', ')}`);
+  assert.ok(proxied.some((c) => /^POST \/api\/plugins\/agentation\/proxy\/sessions\/[^/]+\/annotations$/.test(c)), proxied.join(', '));
+  assert.ok(proxied.some((c) => /^GET \/api\/plugins\/agentation\/proxy\/sessions\/[^/]+\/events$/.test(c)), `the event stream too: ${proxied.join(', ')}`);
+
+  const osTab = (await call('/api/tabs', { cwd: REPO, title: 'agentation-os' })).id;
+  await call(`/api/tabs/${osTab}/send`, { text: 'MCP agentation_get_all_pending {}' });
+  await goView({ kind: 'tab', id: osTab });
+  await page.getByText(/^MCP_RESULT/).last().waitFor();
+  const chat = await page.evaluate(() => document.body.innerText);
+  assert.match(chat.slice(chat.indexOf('MCP_RESULT')), /Через демон/);
+  await goView({ kind: 'entity', type: 'os-plugin', id: 'agentation' });
+  await page.getByTestId('plugin-server-state').first().waitFor();
+  await page.screenshot({ path: join(SHOTS, 'agentation-plugin-page.png') });
+  await page.evaluate(() => localStorage.setItem('claude-os.theme', 'light'));
+  await page.reload();
+  await page.getByTestId('plugin-server-state').first().waitFor();
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: join(SHOTS, 'agentation-plugin-page-light.png') });
+  assert.deepEqual(realPort, []);
   assert.deepEqual(errors, []);
 });

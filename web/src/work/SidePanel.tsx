@@ -5,9 +5,11 @@ import { Segmented, SectionTitle } from '@/components/ui';
 import { useShowCost } from '@/lib/account';
 import { useApi } from '@/lib/api';
 import type { ChatState } from '@/lib/chat';
+import { useFlip } from '@/lib/flip';
 import { fmtAgo, fmtDateTime, fmtInt, fmtTokens, fmtUsd } from '@/lib/format';
 import { useApp } from '@/lib/store';
-import type { MemoryGraph, SessionInfo, Tab, TokenCounts, UsageEntry } from '@/lib/types';
+import type { MemoryGraph, MemoryMap, SessionInfo, Tab, TokenCounts, UsageEntry } from '@/lib/types';
+import { isSubagent } from '../../../shared/contract.ts';
 import { t } from '@/lib/i18n';
 import { journalActive, useSubagentView } from './SubagentView';
 import { useTabCommand } from './tabCommands';
@@ -25,6 +27,12 @@ function Tile({ label, value }: { label: string; value: number }) {
 const ProjectSetupPanel = lazy(() => import('./ProjectSetupPanel').then((m) => ({ default: m.ProjectSetupPanel })));
 
 /** Skills and memory this session really touched, by tool calls in its journal. */
+/** The project's newest notes as the map draws them, and how many it holds in all: the map draws a subset. */
+function projectNotes(graph: MemoryMap | undefined, project: string | null) {
+  const notes = project ? (graph?.nodes ?? []).filter((n) => n.project === project).sort((a, b) => b.mtime - a.mtime) : [];
+  return { notes, total: project ? graph?.counts.find((c) => c.project === project)?.notes ?? notes.length : 0 };
+}
+
 function SessionUsage({ sessionId, graph }: { sessionId: string | null; graph: MemoryGraph | undefined }) {
   const log = useApi<UsageEntry[]>(sessionId ? `/api/usage-log?session=${encodeURIComponent(sessionId)}&limit=500` : null, ['usage']);
   const openNote = useApp((s) => s.openNote);
@@ -71,12 +79,14 @@ function NowRunning({ chat, sessionId, working }: { chat: ChatState; sessionId: 
   // The CLI runs a long command as a task too: one line for it, with the command itself.
   const commands = calls.filter((b) => !tasks.some((x) => x.toolUseId === b.id && x.type !== 'local_bash'));
   const rest = tasks.filter((x) => !commands.some((b) => b.id === x.toolUseId));
+  const box = useRef<HTMLElement>(null);
+  useFlip(box); // a command or task that starts or finishes: its line grows in or fades out, the rest slide
   if (commands.length === 0 && rest.length === 0) return null;
   return (
-    <section aria-label={t('side.running')}>
+    <section ref={box} aria-label={t('side.running')} className="relative">
       <SectionTitle icon={Activity} aside={commands.length + rest.length}>{t('side.running')}</SectionTitle>
       {rest.map((x) => {
-        const agent = x.type === 'local_agent' || x.agentType !== null;
+        const agent = isSubagent(x);
         const body = (
           <>
             {agent ? <Bot size={11} className="flex-none text-dim" /> : <i className="dot-working block size-1.5 flex-none rounded-full bg-accent" />}
@@ -85,13 +95,13 @@ function NowRunning({ chat, sessionId, working }: { chat: ChatState; sessionId: 
           </>
         );
         return agent && sessionId ? (
-          <button key={x.id} type="button" title={t('subagent.open')} onClick={() => openView({ sessionId, key: x.toolUseId ?? x.id, title: x.description })} className="press -mx-2 flex w-[calc(100%+16px)] items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-raised">{body}</button>
+          <button key={x.id} data-flip={x.id} type="button" title={t('subagent.open')} onClick={() => openView({ sessionId, key: x.toolUseId ?? x.id, title: x.description })} className="press -mx-2 flex w-[calc(100%+16px)] items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-raised">{body}</button>
         ) : (
-          <div key={x.id} className="flex items-center gap-2 py-1" title={x.description}>{body}</div>
+          <div key={x.id} data-flip={x.id} className="flex items-center gap-2 py-1" title={x.description}>{body}</div>
         );
       })}
       {commands.slice(-8).map((b) => (
-        <div key={b.id} className="flex items-center gap-2 py-0.5 font-mono text-[11px] text-dim" title={toolSummary(b.name, b.input)}>
+        <div key={b.id} data-flip={b.id} className="flex items-center gap-2 py-0.5 font-mono text-[11px] text-dim" title={toolSummary(b.name, b.input)}>
           <i className="dot-working block size-1 flex-none rounded-full bg-accent" />
           <span className="flex-none text-muted">{b.name}</span>
           <span className="min-w-0 truncate">{toolSummary(b.name, b.input)}</span>
@@ -124,11 +134,13 @@ export function SidePanel({ tab, chat }: { tab: Tab; chat: ChatState }) {
           />
         </div>
       )}
-      {pane === 'project' && tab.project ? (
-        <Suspense fallback={<Skeleton lines={6} />}><ProjectSetupPanel project={tab.project} /></Suspense>
-      ) : (
-        <SessionPane tab={tab} chat={chat} />
-      )}
+      <div key={pane} className="enter-fade flex flex-col gap-3">
+        {pane === 'project' && tab.project ? (
+          <Suspense fallback={<Skeleton lines={6} />}><ProjectSetupPanel project={tab.project} /></Suspense>
+        ) : (
+          <SessionPane tab={tab} chat={chat} />
+        )}
+      </div>
     </aside>
   );
 }
@@ -137,7 +149,7 @@ const AGENTS_SHOWN = 10;
 
 function SessionPane({ tab, chat }: { tab: Tab; chat: ChatState }) {
   const sessions = useApi<SessionInfo[]>('/api/sessions', ['sessions']);
-  const graph = useApi<MemoryGraph>('/api/memory/graph', ['memory']);
+  const graph = useApi<MemoryMap>('/api/memory/graph', ['memory']);
   const openNote = useApp((s) => s.openNote);
   const showCost = useShowCost();
   const sessionId = chat.sessionId ?? tab.sessionId;
@@ -147,7 +159,7 @@ function SessionPane({ tab, chat }: { tab: Tab; chat: ChatState }) {
   const agents = session?.subagents ?? [];
   const [allAgents, setAllAgents] = useState(false);
   const openView = useSubagentView((s) => s.open);
-  const notes = tab.project ? (graph.data?.nodes ?? []).filter((n) => n.project === tab.project).sort((a, b) => b.mtime - a.mtime) : [];
+  const { notes, total } = projectNotes(graph.data, tab.project);
 
   return (
     <div className="flex flex-col gap-5.5">
@@ -212,7 +224,7 @@ function SessionPane({ tab, chat }: { tab: Tab; chat: ChatState }) {
       <SessionUsage sessionId={sessionId} graph={graph.data} />
 
       <section>
-        <SectionTitle icon={Sparkle} aside={notes.length || undefined}>{t('side.memory')}</SectionTitle>
+        <SectionTitle icon={Sparkle} aside={total || undefined}>{t('side.memory')}</SectionTitle>
         {!graph.data && !graph.error && <Skeleton lines={2} />}
         {graph.error && !graph.data && <Empty>{t('side.memoryFailed', { error: graph.error })}</Empty>}
         {graph.data && notes.length === 0 && <Empty>{t('side.noNotes')}</Empty>}
@@ -222,7 +234,7 @@ function SessionPane({ tab, chat }: { tab: Tab; chat: ChatState }) {
             <span className="text-[11px] text-dim">{fmtAgo(n.mtime)}</span>
           </button>
         ))}
-        {notes.length > 12 && <p className="mt-1 text-[11px] text-dim">{t('side.moreNotes', { n: fmtInt(notes.length - 12) })}</p>}
+        {total > 12 && <p className="mt-1 text-[11px] text-dim">{t('side.moreNotes', { n: fmtInt(total - Math.min(12, notes.length)) })}</p>}
       </section>
     </div>
   );

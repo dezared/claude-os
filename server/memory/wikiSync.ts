@@ -2,16 +2,21 @@
 // flags the rest through lint issues, logs every change in _log/<key>.md and regenerates MEMORY.md and _index/<key>.md.
 // Only projects marked managed (isWikiManaged: after their migration) are written; the rest are left as they are.
 // Old-place notes and notes nobody changed since the server started are never written.
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import type { Ctx } from '../context.ts';
 import { lintNote, slugOf } from './lint.ts';
 import type { Store } from './store.ts';
 import { isWikiManaged } from './wikiManaged.ts';
+import { drain, sliced } from './scan.ts';
 import { backupFile, safely, sha256 } from './util.ts';
-import { appendLog, renderCatalog, renderMemoryIndex } from './wikiIndex.ts';
+import { appendLog, catalogSteps, memoryIndexSteps, type IndexNote } from './wikiIndex.ts';
 
 type LogEntry = Parameters<typeof appendLog>[2][number];
+
+// Up to this many notes in the vault a watcher batch, MEMORY.md and _index are done before changed() returns; above,
+// in turns: linting a batch of 15 notes held the server for 40-80 ms, rendering the catalog of 25k notes for 100 ms.
+const CHANGE_NOW = 5_000;
 
 export interface WikiSync {
   // Paths from the watcher (any, also outside the vault); only projects/<key>/*.md are acted on.
@@ -30,6 +35,8 @@ interface State {
   store: Store;
   // path -> sha of the content last written or handled here; '' for notes present at start, not read yet.
   seen: Map<string, string>;
+  // Per project: the latest regeneration (an older one in slices does not write), one in slices running, another asked.
+  regen: Map<string, { gen: number; running: boolean; again: boolean }>;
 }
 
 // projects/<key>/<file>.md, flat, as the store scans them; null for anything else.
@@ -39,16 +46,9 @@ function vaultNoteOf(vault: string, path: string): { key: string; file: string }
   return parts[1].toLowerCase().endsWith('.md') ? { key: parts[0], file: parts[1] } : null;
 }
 
-function notesAtStart(vault: string): Map<string, string> {
-  const seen = new Map<string, string>();
-  const dir = join(vault, 'projects');
-  for (const key of safely(() => readdirSync(dir), [])) {
-    for (const file of safely(() => readdirSync(join(dir, key)), [])) {
-      const path = join(dir, key, file);
-      if (vaultNoteOf(vault, path)) seen.set(path, '');
-    }
-  }
-  return seen;
+// The vault's project notes as the start pass found them: listed again by the scanner, not read here.
+function notesAtStart(s: State): void {
+  for (const n of s.store.noteFiles()) if (n.vaultKey !== null && n.dir === null && !s.seen.has(n.path)) s.seen.set(n.path, '');
 }
 
 function writeOwn(s: State, path: string, text: string, backup: boolean): boolean {
@@ -72,15 +72,47 @@ function noteChanged(s: State, path: string, file: string, text: string | null):
   return { op: 'fix', name: slugOf(stem) || stem, reason: fixes.join(' ') };
 }
 
-function regenerate(s: State, key: string): { memory: boolean; catalog: boolean } {
+// A view the start pass has not checked yet may miss notes: MEMORY.md and _index wait for the full one.
+const regenerable = (s: State, key: string) =>
+  s.store.complete() && existsSync(join(s.ctx.paths.vault, 'projects', key)) && isWikiManaged(s.ctx.paths, key);
+
+const regenOf = (s: State, key: string) => s.regen.get(key) ?? s.regen.set(key, { gen: 0, running: false, again: false }).get(key)!;
+
+function* regenerateSteps(s: State, key: string, list: Generator<void, IndexNote[]>, latest: () => boolean): Generator<void, { memory: boolean; catalog: boolean }> {
   const { vault } = s.ctx.paths;
-  const dir = join(vault, 'projects', key);
-  if (!existsSync(dir) || !isWikiManaged(s.ctx.paths, key)) return { memory: false, catalog: false };
-  const notes = s.store.indexNotes(key);
-  return {
-    memory: writeOwn(s, join(dir, 'MEMORY.md'), renderMemoryIndex(key, notes), true),
-    catalog: writeOwn(s, join(vault, '_index', `${key}.md`), renderCatalog(key, notes), false),
-  };
+  const notes = yield* list;
+  const memory = yield* memoryIndexSteps(key, notes);
+  const catalog = yield* catalogSteps(key, notes);
+  // A newer regeneration ran meanwhile: what it wrote stands. Each file in its own step: comparing and writing a
+  // 2 MB catalog takes a slice of its own.
+  if (!latest()) return { memory: false, catalog: false };
+  const wroteMemory = writeOwn(s, join(vault, 'projects', key, 'MEMORY.md'), memory, true);
+  yield;
+  if (!latest()) return { memory: wroteMemory, catalog: false };
+  return { memory: wroteMemory, catalog: writeOwn(s, join(vault, '_index', `${key}.md`), catalog, false) };
+}
+
+function regenerate(s: State, key: string): { memory: boolean; catalog: boolean } {
+  if (!regenerable(s, key)) return { memory: false, catalog: false };
+  const r = regenOf(s, key);
+  const gen = ++r.gen;
+  return drain(regenerateSteps(s, key, s.store.indexNotesLater(key), () => r.gen === gen));
+}
+
+// After a change: a small project at once, a large one in slices, one run per project at a time.
+function regenerateSoon(s: State, key: string): void {
+  if (!regenerable(s, key)) return;
+  const r = regenOf(s, key);
+  if (s.store.noteFiles().length <= CHANGE_NOW && !r.running) return void regenerate(s, key);
+  if (r.running) return void (r.again = true);
+  r.running = true;
+  const gen = ++r.gen;
+  sliced(regenerateSteps(s, key, s.store.indexNotesLater(key), () => r.gen === gen), 0).catch((err) => s.ctx.app.log.error(err)).finally(() => {
+    r.running = false;
+    if (!r.again) return;
+    r.again = false;
+    regenerateSoon(s, key);
+  });
 }
 
 // Adds the path's log line to its project; true when a fix was written. Unchanged and own writes are skipped.
@@ -98,18 +130,35 @@ function pathChanged(s: State, path: string, touched: Map<string, LogEntry[]>): 
 }
 
 function changed(s: State, paths: string[]): void {
+  if (!s.store.complete()) {
+    // Handled once the start pass is done: a fix and the regeneration both read the whole vault.
+    void s.store.ready.then(() => changed(s, paths));
+    return;
+  }
+  const steps = changedSteps(s, paths);
+  if (s.store.noteFiles().length <= CHANGE_NOW) drain(steps);
+  else sliced(steps, 0).catch((err) => s.ctx.app.log.error(err));
+}
+
+function* changedSteps(s: State, paths: string[]): Generator<void, void> {
   const touched = new Map<string, LogEntry[]>();
-  let fixed = false;
-  for (const path of new Set(paths)) fixed = pathChanged(s, path, touched) || fixed;
-  if (fixed) s.store.touch();
+  const fixed: string[] = [];
+  for (const path of new Set(paths)) {
+    if (pathChanged(s, path, touched)) fixed.push(path);
+    yield;
+  }
+  // Only the fixed notes are reread: a stat pass over 100k notes held the server for a third of a second.
+  if (fixed.length) s.store.touch(fixed);
   for (const [key, entries] of touched) {
     appendLog(s.ctx.paths.vault, key, entries);
-    regenerate(s, key);
+    regenerateSoon(s, key);
   }
 }
 
 export function createWikiSync(ctx: Ctx, store: Store): WikiSync {
-  const s: State = { ctx, store, seen: notesAtStart(ctx.paths.vault) };
+  const s: State = { ctx, store, seen: new Map(), regen: new Map() };
+  if (store.complete()) notesAtStart(s);
+  else void store.ready.then(() => notesAtStart(s));
   return {
     changed: (paths) => changed(s, paths),
     regenerate: (key) => regenerate(s, key),

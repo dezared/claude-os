@@ -14,7 +14,8 @@ let browser: Browser;
 let page: Page;
 let server: FixtureServer;
 const STATUS = /^\/api\/app\/status$/;
-const OLD_ICONS: [number, unknown] = [200, { dir: '/x', icons: {}, rejected: [], offerDismissed: true }]; // what a process older than `chosen` answers
+// What a process older than `chosen` answers. A project has an icon, so the list reads `chosen` for it and breaks.
+const OLD_ICONS: [number, unknown] = [200, { dir: '/x', icons: { 'alpha-service': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"/>' }, rejected: [], offerDismissed: true }];
 
 before(async () => {
   browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
@@ -109,6 +110,30 @@ test('no error text flashes when the first request fails', async () => {
   const seen = await page.evaluate(() => (window as unknown as { __seen: string[] }).__seen.join('\n'));
   assert.ok(!seen.includes('Сервер Claude OS не отвечает'), 'no request error on screen');
   assert.ok(!seen.includes('Нет связи с сервером'), 'no offline bar');
+});
+
+test('a lost server shows a live bar with the time away, then says the connection is back and leaves', async () => {
+  // The first socket opens and is cut; the next three attempts fail (about 7 s away), the fifth gets through.
+  let attempts = 0;
+  let first: { close(): Promise<void> } | null = null;
+  await page.routeWebSocket(/\/ws$/, (ws) => {
+    attempts++;
+    if (attempts === 1) {
+      first = ws;
+      return ws.connectToServer();
+    }
+    return attempts < 5 ? ws.close() : ws.connectToServer();
+  });
+  await page.goto(server.url);
+  await homeButton(page).waitFor();
+  await first!.close();
+  const bar = page.getByTestId('connection-bar');
+  await bar.getByText('Нет связи с сервером, переподключаюсь', { exact: false }).waitFor();
+  await bar.getByText(/^0:0[1-9]$/).waitFor();
+  await page.screenshot({ path: '/tmp/cos-connection-lost.png' });
+  await bar.getByText('Связь с сервером восстановлена').waitFor({ timeout: 15_000 });
+  assert.ok(attempts >= 5, `reconnected after ${attempts} attempts`);
+  await bar.waitFor({ state: 'detached', timeout: 6000 });
 });
 
 test('an error nothing caught becomes a toast with the fix button', async () => {

@@ -1,4 +1,4 @@
-import type { KitStatusReport } from '../../../shared/projectKit.ts';
+import { DEFAULT_KIT, type KitStatusReport } from '../../../shared/projectKit.ts';
 import { peekCached, useApi } from './api';
 import { t } from './i18n';
 import { runMicrotask } from './microtask';
@@ -16,7 +16,8 @@ export function kitStatusText(report: KitStatusReport | undefined, project: stri
   if (!report?.kit) return null;
   const installed = report.projects[project] ?? null;
   if (installed === null) return t('kit.notInstalled');
-  return installed === report.kit.version ? `v${installed}` : t('kit.updateTo', { version: report.kit.version });
+  const enabled = report.kits.find((k) => k.id === installed.id);
+  return !enabled || enabled.version === installed.version ? `v${installed.version}` : t('kit.updateTo', { version: enabled.version });
 }
 
 /** The project menu item's label; null hides the item. */
@@ -25,5 +26,12 @@ export function kitMenuLabel(projectKey: string): string | null {
   return status === null ? null : `${t('kit.menu')} · ${status}`;
 }
 
-/** The menu item and the setup panel start the same microtask; sent anywhere but a work tab of the project, it moves itself there. */
-export const runKitTask = (project: string, root: string) => runMicrotask({ id: 'project-kit', project, title: t('kit.title'), vars: { root, project } });
+/**
+ * The menu item, the setup panel and the kits screen start the same microtask; sent anywhere but a work tab of the project,
+ * it moves itself there. Without a kit it is the one the project has, else the default one.
+ */
+export function runKitTask(project: string, root: string, kit?: string, action: 'install' | 'remove' = 'install') {
+  const report = peekCached<KitStatusReport>(STATUS);
+  const id = kit ?? report?.projects[project]?.id ?? report?.kit?.id ?? DEFAULT_KIT;
+  runMicrotask({ id: 'project-kit', project, title: t(action === 'remove' ? 'kit.removeTitle' : 'kit.title'), vars: { root, project, kit: id, action } });
+}

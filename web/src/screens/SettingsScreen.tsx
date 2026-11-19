@@ -1,8 +1,7 @@
-import { BookOpen, Check, CircleUser, LayoutGrid, Mic, FolderCog, Info, Languages, Settings, ShieldAlert, SlidersHorizontal, SquareTerminal, Stethoscope, UserRound, type LucideIcon } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Check, Languages, ShieldAlert, Stethoscope } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { ClaudeMark } from '@/components/ClaudeMark';
-import { desktop, setDesktopPrefs, useDesktopPrefs, type CloseChoice } from '@/components/desktop';
 import { OBSIDIAN_DOWNLOAD } from '@/components/ObsidianNotice';
 import { ProgramIcon } from '@/components/ProgramIcon';
 import { askForIcons, ProjectIcon } from '@/components/ProjectIcon';
@@ -11,8 +10,8 @@ import { Empty, ErrorState, Skeleton, Spinner } from '@/components/states';
 import { Button, Checkbox, Dialog, Field, Input, Segmented, Select } from '@/components/ui';
 import { spendNote, useAccount } from '@/lib/account';
 import { api, invalidateTopics, setCached, useApi } from '@/lib/api';
-import { cn, fmtAgo, fmtDateTime, shortPath } from '@/lib/format';
-import { languages, serverText, setLang, t, useLang, type Key } from '@/lib/i18n';
+import { fmtAgo, fmtDateTime, shortPath } from '@/lib/format';
+import { languages, serverText, setLang, t, useLang } from '@/lib/i18n';
 import { runMicrotask } from '@/lib/microtask';
 import { efforts, modelGroups } from '@/lib/models';
 import { useProjectColors } from '@/lib/projectColors';
@@ -22,80 +21,15 @@ import { DEFAULT_MAP_LIMIT, mapKeys, MAX_MAP_LIMIT } from '@/home/universe/selec
 import { SkyThemes } from '@/home/universe/SkyThemes';
 import { EMPTY_HOME, SLOTS, stacks } from '@/home/slots';
 import { purgeWidget, restoreWidget, trashWidget, widgetTitle, type Widgets } from '@/home/Widgets';
-import type { MemoryGraph, Overview, Profile, Project, ProjectIcons, ProjectIde, QuestionLevel, SettingsView as Settings_, TerminalRun, VoiceStatus } from '@/lib/types';
+import type { MemoryGraph, Overview, Profile, Project, ProjectIcons, ProjectIde, QuestionLevel, SettingsView as Settings_, TerminalRun } from '@/lib/types';
 import { TerminalText } from '@/work/TerminalText';
-import { DownloadProgress, enableVoice, fmtMb } from '@/work/voice/VoiceButton';
 import { AskClaude, Bar, Tag } from './admin/parts';
-
-const SECTIONS: { id: SettingsSection; label: Key; icon: LucideIcon }[] = [
-  { id: 'general', label: 'set.general', icon: SlidersHorizontal },
-  { id: 'profile', label: 'settings.profile.title', icon: UserRound },
-  { id: 'widgets', label: 'set.widgets', icon: LayoutGrid },
-  { id: 'ides', label: 'set.ides', icon: SquareTerminal },
-  { id: 'projects', label: 'set.projects', icon: FolderCog },
-  { id: 'claude', label: 'set.claude', icon: CircleUser },
-  { id: 'notes', label: 'set.notes', icon: BookOpen },
-  { id: 'voice', label: 'set.voice', icon: Mic },
-  { id: 'about', label: 'set.about', icon: Info },
-];
-
-function Head({ title, hint, aside }: { title: string; hint?: string; aside?: ReactNode }) {
-  return (
-    <header className="mb-4 flex flex-wrap items-start gap-3">
-      <div className="min-w-0 flex-1">
-        <h2 className="text-[15px] font-medium">{title}</h2>
-        {hint && <p className="mt-0.5 text-xs text-dim">{hint}</p>}
-      </div>
-      {aside && <div className="flex flex-wrap items-center gap-2">{aside}</div>}
-    </header>
-  );
-}
-
-function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 border-t border-line2 py-2.5 first:border-t-0">
-      <div className="min-w-52 flex-1">
-        <div className="text-soft">{label}</div>
-        {hint && <div className="mt-px text-[11.5px] leading-[1.45] text-dim">{hint}</div>}
-      </div>
-      <div className="flex min-w-0 items-center gap-2">{children}</div>
-    </div>
-  );
-}
-
-function Rows({ children }: { children: ReactNode }) {
-  return <div className="mb-6 rounded-xl bg-white/[.025] px-4 py-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,.055)]">{children}</div>;
-}
-
-const onOff = (on: boolean) => t(on ? 'desktop.enabled' : 'desktop.disabled');
-
-// Only the window has a tray and notifications: in a browser there is nothing to set.
-function DesktopRows() {
-  const prefs = useDesktopPrefs();
-  const bridge = desktop();
-  if (!bridge) return null;
-  return (
-    <>
-      <Row label={t('desktop.closeSetting')} hint={t('desktop.closeSettingHint')}>
-        <Select
-          className="w-56"
-          ariaLabel={t('desktop.closeSetting')}
-          value={prefs.closeChoice}
-          onChange={(v) => setDesktopPrefs({ closeChoice: (v ?? 'ask') as CloseChoice })}
-          options={[{ value: 'ask', label: t('desktop.closeAsk') }, { value: 'tray', label: t('desktop.keep') }, { value: 'stop', label: t('desktop.stopAll') }]}
-        />
-      </Row>
-      <Row label={t('desktop.notifySetting')} hint={t('desktop.notifyHint')}>
-        <Checkbox checked={prefs.notifications} onChange={(v) => setDesktopPrefs({ notifications: v })}>{onOff(prefs.notifications)}</Checkbox>
-      </Row>
-      {bridge.canFullscreen && (
-        <Row label={t('desktop.fullscreenSetting')} hint={t('desktop.fullscreenHint')}>
-          <Checkbox checked={prefs.fullscreenMode} onChange={(v) => setDesktopPrefs({ fullscreenMode: v })}>{onOff(prefs.fullscreenMode)}</Checkbox>
-        </Row>
-      )}
-    </>
-  );
-}
+import { AccentSwatches } from './AccentSwatches';
+import { DesktopRows, Head, onOff, Row, Rows } from './SettingsRows';
+import { SECTIONS, SettingsNav } from './SettingsNav';
+import { ThemeTiles } from './ThemeTiles';
+import { SemanticSection } from './SemanticSettings';
+import { VoiceSection } from './VoiceSettings';
 
 function General({ s }: { s: Settings_ | undefined }) {
   const lang = useLang((s) => s.lang);
@@ -109,13 +43,10 @@ function General({ s }: { s: Settings_ | undefined }) {
   };
   return (
     <>
-      <Head title={t('set.general')} />
+      <Head title={t('set.appearance')} hint={t('settings.themeHint')} />
       <Rows>
-        <Row label={t('settings.language')} hint={profileLang === undefined ? undefined : t('settings.profile.languageRowHint')}>
-          <Languages size={13} className="text-dim" />
-          <Segmented ariaLabel={t('settings.language')} value={profileLang ?? lang} onChange={choose} options={languages.map((l) => ({ value: l.code, label: l.label }))} />
-        </Row>
-        <DesktopRows />
+        <ThemeTiles />
+        <AccentSwatches />
       </Rows>
       {sky && (
         <>
@@ -131,6 +62,14 @@ function General({ s }: { s: Settings_ | undefined }) {
           </Rows>
         </>
       )}
+      <Head title={t('set.window')} />
+      <Rows>
+        <Row label={t('settings.language')} hint={profileLang === undefined ? undefined : t('settings.profile.languageRowHint')}>
+          <Languages size={13} className="text-dim" />
+          <Segmented ariaLabel={t('settings.language')} value={profileLang ?? lang} onChange={choose} options={languages.map((l) => ({ value: l.code, label: l.label }))} />
+        </Row>
+        <DesktopRows />
+      </Rows>
     </>
   );
 }
@@ -142,14 +81,14 @@ async function saveProfile(patch: Partial<Profile>): Promise<boolean> {
     setCached<Settings_>('/api/settings', () => next);
     return true;
   } catch (e) {
-    // The server names the field ("projectsDir: ..."); the row already does.
-    toastError(new Error((e as Error).message.replace(/^(name|language|projectsDir|questionLevel): /, '')));
+    // The server names the field ("language: ..."); the row already does.
+    toastError(new Error((e as Error).message.replace(/^(name|language|questionLevel): /, '')));
     return false;
   }
 }
 
 // Saved on Enter or on leaving the field, like the task prefix; Escape puts the saved value back.
-function ProfileText({ label, hint, value, field, className, lower, maxLength }: { label: string; hint?: string; value: string; field: 'name' | 'language' | 'projectsDir'; className: string; lower?: boolean; maxLength?: number }) {
+function ProfileText({ label, hint, value, field, className, lower, maxLength }: { label: string; hint?: string; value: string; field: 'name' | 'language'; className: string; lower?: boolean; maxLength?: number }) {
   const [draft, setDraft] = useState<string | null>(null);
   const save = async () => {
     if (draft === null || draft.trim() === value) return setDraft(null);
@@ -186,7 +125,6 @@ function ProfileSection({ s }: { s: Settings_ | undefined }) {
         <Rows>
           <ProfileText label={t('settings.profile.name')} value={p.name} field="name" className="w-56" maxLength={60} />
           <ProfileText label={t('settings.profile.language')} hint={t('settings.profile.languageHint')} value={p.language} field="language" className="max-w-20 font-mono" lower />
-          <ProfileText label={t('settings.profile.projectsDir')} hint={t('settings.profile.projectsDirHint')} value={p.projectsDir} field="projectsDir" className="min-w-96 font-mono text-xs" />
           <Row label={t('settings.profile.questionLevel')} hint={t(`settings.profile.levelHint.${p.questionLevel}`)}>
             <Segmented ariaLabel={t('settings.profile.questionLevel')} value={p.questionLevel} onChange={(questionLevel) => void saveProfile({ questionLevel })} options={LEVELS.map((l) => ({ value: l, label: t(`settings.profile.level.${l}`) }))} />
           </Row>
@@ -311,44 +249,6 @@ function Ides({ s, error, retry }: { s: Settings_ | undefined; error: string | n
   );
 }
 
-// The start of a task's id on the board: OS in OS-21. Saved on Enter or on leaving the field; the cards follow on the server.
-function PrefixRow({ project, label }: { project: string | null; label: string }) {
-  const board = useApi<{ prefixes: Record<string, string> }>('/api/kanban', ['kanban']);
-  const current = board.data?.prefixes[project ?? '@general'] ?? '';
-  const [draft, setDraft] = useState<string | null>(null);
-  const value = draft ?? current;
-  const save = async () => {
-    if (draft === null || !draft.trim() || draft.trim().toUpperCase() === current) {
-      setDraft(null);
-      return;
-    }
-    try {
-      await api('/api/kanban/prefix', { method: 'PUT', body: { project, prefix: draft } });
-      invalidateTopics(['kanban']);
-      setDraft(null);
-    } catch (e) {
-      toastError(e);
-    }
-  };
-  return (
-    <Row label={label} hint={t('settings.taskPrefixHint', { example: `${value || 'OS'}-21` })}>
-      <Input
-        aria-label={label}
-        className="w-56 font-mono uppercase"
-        value={value}
-        maxLength={10}
-        spellCheck={false}
-        onChange={(e) => setDraft(e.target.value.toUpperCase())}
-        onBlur={() => void save()}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
-          else if (e.key === 'Escape') setDraft(null);
-        }}
-      />
-    </Row>
-  );
-}
-
 function ProjectsSection({ settings }: { settings: Settings_ | undefined }) {
   const projects = useApi<Project[]>('/api/projects', ['projects']);
   const models = useApi<{ id: string; label: string }[]>('/api/models');
@@ -390,8 +290,6 @@ function ProjectsSection({ settings }: { settings: Settings_ | undefined }) {
           <Row label={t('settings.ide')} hint={!current.ide ? auto : undefined}>
             <Select className="w-56" ariaLabel={t('settings.ide')} value={current.ide ?? null} onChange={(v) => patch({ ide: v })} options={[{ value: null, label: t('settings.ideAuto') }, ...(settings?.ides ?? []).filter((e) => e.approved).map((e) => ({ value: e.id, label: e.name }))]} />
           </Row>
-          <PrefixRow key={key} project={key} label={t('settings.taskPrefix')} />
-          <PrefixRow project={null} label={t('settings.taskPrefixGeneral')} />
         </Rows>
       )}
       <MapSection settings={settings} projects={projects.data ?? []} />
@@ -519,47 +417,7 @@ function Notes({ s }: { s: Settings_ | undefined }) {
           <Button onClick={() => go({ kind: 'tools', pane: 'vault' })}>{t('set.openVaultPanel')}</Button>
         </Row>
       </Rows>
-    </>
-  );
-}
-
-function Voice() {
-  const q = useApi<VoiceStatus>('/api/voice', ['voice']);
-  const [confirm, setConfirm] = useState(false);
-  const v = q.data;
-  const remove = async () => {
-    setConfirm(false);
-    try {
-      const next = await api<VoiceStatus>('/api/voice/model', { method: 'DELETE' });
-      setCached<VoiceStatus>('/api/voice', () => next);
-    } catch (e) {
-      toastError(e);
-    }
-  };
-  return (
-    <>
-      <Head title={t('set.voice')} hint={t('voice.hint')} />
-      {q.error && !v && <ErrorState message={q.error} onRetry={q.refetch} />}
-      {!v && !q.error && <Skeleton lines={3} />}
-      {v && (
-        <Rows>
-          <Row label={t('voice.model')} hint={v.state === 'ready' ? t('voice.onDisk', { size: fmtMb(v.diskBytes) }) : t('voice.notInstalled', { size: fmtMb(v.modelBytes) })}>
-            <span className="font-mono text-xs text-soft">{v.model}</span>
-            {v.state === 'ready' && <Check size={13} className="text-ok" />}
-          </Row>
-          <Row label={t('voice.folder')}><code className="selectable max-w-xl font-mono text-[11.5px] wrap-anywhere text-soft">{v.dir}</code></Row>
-          {v.error && <p role="alert" className="border-t border-line2 py-2.5 text-xs break-words text-accent">{t('voice.failed', { error: v.error })}</p>}
-          <div className="border-t border-line2 py-2.5">
-            {v.state === 'downloading' ? <DownloadProgress status={v} /> : v.state === 'ready' ? <Button onClick={() => setConfirm(true)}>{t('voice.remove')}</Button> : <Button variant="primary" onClick={() => void enableVoice()}>{t('voice.enable')}</Button>}
-          </div>
-        </Rows>
-      )}
-      <Dialog open={confirm} onOpenChange={setConfirm} title={t('voice.removeTitle')} description={t('voice.removeHint', { size: fmtMb(v?.diskBytes ?? 0) })}>
-        <div className="flex justify-end gap-2">
-          <Button onClick={() => setConfirm(false)}>{t('common.cancel')}</Button>
-          <Button variant="danger" onClick={() => void remove()}>{t('voice.remove')}</Button>
-        </div>
-      </Dialog>
+      <SemanticSection />
     </>
   );
 }
@@ -581,27 +439,12 @@ function About({ s }: { s: Settings_ | undefined }) {
 
 export function SettingsView({ section }: { section: SettingsSection }) {
   const q = useApi<Settings_>('/api/settings', ['settings']);
-  const go = useApp((s) => s.go);
   const s = q.data;
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[196px_minmax(0,1fr)]">
-      <nav aria-label={t('set.nav')} className="flex min-h-0 flex-col gap-0.5 overflow-auto border-r border-line2 p-2">
-        <h1 className="flex items-center gap-2 px-2 pt-1 pb-2.5 text-sm font-medium"><Settings size={15} className="text-dim" />{t('settings.title')}</h1>
-        {SECTIONS.map((x) => (
-          <button
-            key={x.id}
-            type="button"
-            aria-current={section === x.id ? 'page' : undefined}
-            onClick={() => go({ kind: 'settings', section: x.id })}
-            className={cn('press flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left', section === x.id ? 'bg-white/[.1] text-fg shadow-[inset_0_1px_0_rgba(255,255,255,.08)]' : 'text-muted hover:bg-raised hover:text-fg')}
-          >
-            <x.icon size={14} className={section === x.id ? 'text-accent' : 'text-dim'} />
-            {t(x.label)}
-          </button>
-        ))}
-      </nav>
+    <div className="grid min-h-0 flex-1 grid-cols-[216px_minmax(0,1fr)]">
+      <SettingsNav section={section} />
       <div className="min-h-0 overflow-auto">
-        <div className="max-w-4xl px-7 py-5">
+        <div key={section} className="enter-fade max-w-4xl px-7 py-5">
           <Breadcrumbs className="mb-3 -ml-1" items={[{ label: t('nav.home'), view: { kind: 'home' } }, { label: t('settings.title'), view: { kind: 'settings' } }, { label: t(SECTIONS.find((x) => x.id === section)?.label ?? SECTIONS[0].label) }]} />
           {section === 'general' && <General s={s} />}
           {section === 'profile' && <ProfileSection s={s} />}
@@ -610,7 +453,7 @@ export function SettingsView({ section }: { section: SettingsSection }) {
           {section === 'projects' && <ProjectsSection settings={s} />}
           {section === 'claude' && <ClaudeSection />}
           {section === 'notes' && <Notes s={s} />}
-          {section === 'voice' && <Voice />}
+          {section === 'voice' && <VoiceSection s={s} />}
           {section === 'about' && <About s={s} />}
         </div>
       </div>

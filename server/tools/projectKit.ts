@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { sep } from 'node:path';
 import { promisify } from 'node:util';
-import { KIT_APPLY_TOOL, type KitAnswers, type KitPlan, type KitPlanSummary, type KitStatusReport } from '../../shared/projectKit.ts';
+import { DEFAULT_KIT, KIT_APPLY_TOOL, type KitAnswers, type KitLock, type KitPlan, type KitPlanSummary, type KitRef, type KitStatusReport } from '../../shared/projectKit.ts';
 import type { Ctx } from '../context.ts';
 import { httpError, safely } from '../memory/util.ts';
 import { applyKit, staleReason, type StoredPlan } from './kitApply.ts';
@@ -12,7 +12,7 @@ import { registerKitMetrics } from './kitMetrics.ts';
 import { planKit, readLock } from './kitPlan.ts';
 import { KIT_BUDGETS } from './kitRender.ts';
 
-export interface KitPlanRequest { action?: 'install' | 'remove'; claudeMd?: string; rules?: Record<string, string>; answers?: KitAnswers }
+export interface KitPlanRequest { kit?: string; action?: 'install' | 'remove'; claudeMd?: string; rules?: Record<string, string>; answers?: KitAnswers }
 
 export interface KitApi {
   status(): KitStatusReport;
@@ -22,7 +22,8 @@ export interface KitApi {
   apply(planId: string): Promise<string>;
 }
 
-type ActiveKit = () => { id: string; dir: string; version: string } | null;
+export type KitPlugin = { id: string; dir: string; version: string };
+type ActiveKits = () => KitPlugin[];
 type Gate = (root: string) => Promise<string>;
 
 const run = promisify(execFile);
@@ -62,15 +63,33 @@ function registerRoutes(ctx: Ctx, api: KitApi): void {
   });
 }
 
-function kitStatus(ctx: Ctx, kit: ReturnType<ActiveKit>): KitStatusReport {
-  const projects = Object.fromEntries(ctx.journal.listProjects(true).map((p) => [p.key, readLock(p.root)?.kit ?? null]));
-  return { kit: kit && { id: kit.id, version: kit.version }, projects };
+const ref = (k: KitPlugin): KitRef => ({ id: k.id, version: k.version });
+/** The kit plugin a lock was written by: one from before several kits has no id and came from the shipped kit. */
+export const lockKit = (lock: KitLock | null): KitRef | null => lock && { id: lock.id ?? DEFAULT_KIT, version: lock.kit };
+/** A new install takes the shipped kit while it is enabled, otherwise the first enabled one. */
+export const defaultKit = (kits: KitPlugin[]): KitPlugin | null => kits.find((k) => k.id === DEFAULT_KIT) ?? kits[0] ?? null;
+
+function kitStatus(ctx: Ctx, kits: KitPlugin[]): KitStatusReport {
+  const projects = Object.fromEntries(ctx.journal.listProjects(true).map((p) => [p.key, lockKit(readLock(p.root))]));
+  const kit = defaultKit(kits);
+  return { kit: kit && ref(kit), kits: kits.map(ref), projects };
+}
+
+// The asked kit, else the one the project has, else the default; a named kit that is not enabled is refused.
+function pickKit(kits: KitPlugin[], asked: string | undefined, root: string): KitPlugin {
+  const id = asked ?? lockKit(readLock(root))?.id;
+  const kit = id ? kits.find((k) => k.id === id) : defaultKit(kits);
+  if (kit) return kit;
+  throw httpError(409, `enable the ${id ?? DEFAULT_KIT} plugin first`);
 }
 
 async function applyStored(ctx: Ctx, stored: StoredPlan, gate: Gate, written: () => void): Promise<string> {
   if (stored.plan.empty) return 'nothing to do';
   try {
     const done = await applyKit(stored, { data: ctx.paths.data, audit: (a, t, d) => ctx.audit(a, t, d), gate });
+    // One line per apply for the kits screen's history; the per-file entries above carry the diffs.
+    const { project, kitId, kit, action } = stored.plan;
+    ctx.audit('project.kit', project, JSON.stringify({ kit: kitId, version: kit, action, files: done.written.length }));
     return `${done.written.length} files written${done.gate ? `\n${done.gate}` : ''}`;
   } finally {
     written();
@@ -86,12 +105,13 @@ function assertCard(ctx: Ctx, stored: StoredPlan, requestId: unknown): void {
 }
 
 // A plan made with a kit that is no longer the enabled one is not applied.
-function assertKit(kit: ReturnType<ActiveKit>, stored: StoredPlan): void {
-  if (!kit) throw httpError(409, 'enable the project-kit plugin first');
+function assertKit(kits: KitPlugin[], stored: StoredPlan): void {
+  const kit = kits.find((k) => k.id === stored.plan.kitId);
+  if (!kit) throw httpError(409, `enable the ${stored.plan.kitId} plugin first`);
   if (kit.version !== stored.plan.kit) throw httpError(409, `stale plan: the kit changed to ${kit.version}; call kit_plan again`);
 }
 
-export function createProjectKit(ctx: Ctx, activeKit: ActiveKit, gate: Gate = runGate): KitApi {
+export function createProjectKit(ctx: Ctx, activeKits: ActiveKits, gate: Gate = runGate): KitApi {
   // One plan per project: a new plan replaces the previous one.
   const plans = new Map<string, StoredPlan>();
   const dropMetrics = registerKitMetrics(ctx);
@@ -101,11 +121,10 @@ export function createProjectKit(ctx: Ctx, activeKit: ActiveKit, gate: Gate = ru
     return stored;
   };
   const api: KitApi = {
-    status: () => kitStatus(ctx, activeKit()),
+    status: () => kitStatus(ctx, activeKits()),
     plan(tabId, input) {
       const root = projectRoot(ctx, tabId);
-      const kit = activeKit();
-      if (!kit) throw httpError(409, 'enable the project-kit plugin first');
+      const kit = pickKit(activeKits(), input.kit, root);
       const project = ctx.journal.projectForCwd(root);
       if (!project) throw httpError(422, `${root} is not a project`);
       const level = ctx.settings?.profile()?.questionLevel ?? null;
@@ -122,7 +141,7 @@ export function createProjectKit(ctx: Ctx, activeKit: ActiveKit, gate: Gate = ru
     async apply(planId) {
       const stored = find(planId);
       if (!stored.plan.approved) throw httpError(403, 'not approved: only the Apply button on the plan card approves a plan');
-      assertKit(activeKit(), stored);
+      assertKit(activeKits(), stored);
       // Used or stale, a plan is spent: the next attempt starts from a fresh kit_plan.
       plans.delete(stored.plan.project);
       const stale = staleReason(stored.hashes, stored.plan.root);

@@ -1,3 +1,4 @@
+import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatBlock, SlashCommand, TokenCounts } from '../../shared/contract.ts';
 
 // The CLI reports commands bound to the local terminal in terminal_slash_commands. These are the ones it
@@ -9,6 +10,8 @@ const NEEDS_TERMINAL = new Set(['agents', 'config', 'doctor', 'mcp', 'output-sty
 // run no model turn. Dialogs where the point is to change something (/config, /output-style, /login, /model...) stay terminal-only.
 export const BACKGROUND_COMMANDS = new Set(['usage', 'status', 'stats', 'help', 'mcp', 'agents']);
 export const REMOTE_CONTROL_COMMANDS = new Set(['rc', 'remote-control']); // the CLI's control request, see TabSession.toggleRemoteControl
+// In the SDK's runtime since it spoke the CLI's remote_control request, missing from its published types.
+export type RemoteControlQuery = Query & { enableRemoteControl(enabled: boolean, name?: string): Promise<{ session_url?: string; connect_url?: string }> };
 export const CLEAR_COMMANDS = new Set(['clear', 'reset', 'new']); // /reset and /new are the CLI's aliases of /clear
 export const FOCUS_COMMAND = 'focus'; // the CLI's own /focus switches its terminal view; here the same words switch the chat's, in the browser
 export const VIEW_COMMAND = 'view'; // the width of the chat column, answered in the browser like /focus

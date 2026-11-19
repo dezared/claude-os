@@ -1,20 +1,24 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { watch, type FSWatcher } from 'chokidar';
 import type { Ctx } from '../context.ts';
 import { safely, sha256 } from '../memory/util.ts';
 import type { HomeLayout, Profile, ProjectSettings, PromoteRequest, UniverseOptions } from '../../shared/contract.ts';
+import type { VoiceOptions } from '../../shared/voice.ts';
 import { createAccount } from './account.ts';
 import { createActions, type RunBody } from './actions.ts';
 import { createAdmin, registerAdmin } from './admin.ts';
+import { enableDefaultPlugins, enableMovedPlugins } from './osPluginDefaults.ts';
+import { registerOsPluginData } from './osPluginData.ts';
+import { createPluginServers } from './osPluginServers.ts';
 import { createOsPlugins } from './osPlugins.ts';
+import { registerKitSets } from './kitSets.ts';
 import { createProjectKit } from './projectKit.ts';
 import { createProjectIcons } from './projectIcons.ts';
 import { registerPlanner } from './planner.ts';
 import { registerAgents } from './agents.ts';
 import { registerDocuments } from './documents.ts';
-import { registerKanban } from './kanban.ts';
 import { registerProjectFiles } from './projectFiles.ts';
 import { createClaudeMd } from './claudeMd.ts';
 import { createCommands } from './commands.ts';
@@ -40,6 +44,24 @@ function tabCwd(ctx: Ctx, id: string): string {
   }
 }
 
+// The plugins, their data routes, and what other modules take from them: the project kit, the server parts, and the plugins the first-run setup enables.
+function wireOsPlugins(ctx: Ctx, skills: ReturnType<typeof createSkills>, mcp: ReturnType<typeof createMcp>, approvals: ReturnType<typeof createApprovals>) {
+  const osPlugins = createOsPlugins(ctx, skills, mcp, approvals);
+  ctx.kit = createProjectKit(ctx, osPlugins.activeKits);
+  registerKitSets(ctx, osPlugins.installer.folders, osPlugins.activeKits);
+  ctx.enableDefaultPlugins = () => enableDefaultPlugins(osPlugins.installer);
+  registerOsPluginData(ctx, osPlugins.allows, osPlugins.installer.folders);
+  ctx.pluginServers = createPluginServers(ctx, osPlugins.activeServers);
+  // Runs to its end before the first session in practice: a moved plugin has no skills or MCP servers to wait on.
+  // One that could not be enabled is logged and named on its row on the plugins screen, where the user enables it by hand.
+  const existing = ctx.settings?.setup().completedAt != null || existsSync(join(ctx.paths.vault, 'kanban'));
+  void enableMovedPlugins(osPlugins.installer, ctx.paths.data, existing).then(({ failed }) => {
+    for (const { id, reason } of failed) ctx.app.log.error(`plugin ${id} could not be enabled after the update: ${reason}`);
+    if (failed.length) ctx.invalidate('osPlugins');
+  }).catch((err: Error) => ctx.app.log.error(err));
+  return osPlugins;
+}
+
 export function registerTools(ctx: Ctx): void {
   const { app } = ctx;
   mkdirSync(ctx.paths.config, { recursive: true });
@@ -49,18 +71,16 @@ export function registerTools(ctx: Ctx): void {
   const actions = createActions(ctx, approvals);
   const widgets = createWidgets(ctx, approvals);
   const settings = createSettings(ctx, approvals);
-  ctx.settings = { projectDefaults: settings.projectDefaults, profile: settings.profile, setProfile: settings.setProfile, setup: settings.setup, saveSetup: settings.saveSetup };
+  ctx.settings = { projectDefaults: settings.projectDefaults, profile: settings.profile, voice: settings.voice, setProfile: settings.setProfile, setup: settings.setup, saveSetup: settings.saveSetup };
   const account = createAccount(ctx);
   const commands = createCommands(ctx, () => skills.list());
   const claudeMd = createClaudeMd(ctx);
   const setup = createSetup(ctx, skills, mcp);
   registerAdmin(ctx, createAdmin(ctx, skills, mcp, account));
   createProjectIcons(ctx);
-  const osPlugins = createOsPlugins(ctx, skills, mcp, approvals);
-  ctx.kit = createProjectKit(ctx, osPlugins.activeKit);
+  const osPlugins = wireOsPlugins(ctx, skills, mcp, approvals);
 
   registerPlanner(ctx);
-  registerKanban(ctx);
   registerDocuments(ctx);
   registerAgents(ctx);
   registerProjectFiles(ctx, (id) => tabCwd(ctx, id), osPlugins.allows, (id) => safely(() => ctx.chat?.tabInfo(id).project ?? null, null));
@@ -112,6 +132,7 @@ export function registerTools(ctx: Ctx): void {
   app.get('/api/settings', async () => settings.view());
   app.put<{ Params: { key: string }; Body: ProjectSettings }>('/api/settings/project/:key', async (req) => settings.setProject(req.params.key, req.body ?? {}));
   app.put<{ Body: Partial<UniverseOptions> }>('/api/settings/universe', async (req) => settings.setUniverse(req.body ?? {}));
+  app.put<{ Body: Partial<VoiceOptions> }>('/api/settings/voice', async (req) => settings.setVoice(req.body ?? {}));
   app.put<{ Body: Partial<HomeLayout> }>('/api/settings/home', async (req) => settings.setHome(req.body ?? {}));
   app.put<{ Body: Partial<Profile> }>('/api/settings/profile', async (req) => settings.setProfile(req.body ?? {}));
   app.post('/api/settings/obsidian/dismiss', async () => settings.dismissObsidian());

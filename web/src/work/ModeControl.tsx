@@ -1,4 +1,4 @@
-import { Check, ChevronDown, FilePen, ListChecks, Shield, ShieldCheck, ShieldOff, ShieldQuestion, Sparkles, type LucideIcon } from 'lucide-react';
+import { Check, ChevronDown, FilePen, ListChecks, RadioTower, Shield, ShieldCheck, ShieldOff, ShieldQuestion, Sparkles, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Button, Dialog } from '@/components/ui';
 import { api, setCached } from '@/lib/api';
@@ -54,12 +54,19 @@ export function ModeControl({ tab, chat }: { tab: Tab; chat: ChatState }) {
         aria-label={`${t('mode.aria')}: ${label}`}
         title={t('mode.aria')}
         onClick={() => setOpen(true)}
-        className="press inline-flex max-w-44 flex-none items-center gap-1 rounded text-[11px] text-muted underline decoration-white/25 underline-offset-3 hover:text-fg hover:decoration-white/60"
+        className="press inline-flex max-w-44 flex-none items-center gap-1 rounded text-[11px] text-muted underline decoration-fg/25 underline-offset-3 hover:text-fg hover:decoration-fg/60"
       >
         <Icon size={11} className="flex-none" />
         <span className="truncate">{label}</span>
         <ChevronDown size={11} className="flex-none" />
       </button>
+      {/* Set by /rc and gone with the process: the session also answers on claude.ai/code or the phone. */}
+      {tab.remoteControl && (
+        <span role="status" title={t('mode.remoteAbout')} aria-label={t('mode.remoteAbout')} className="remote-mark inline-flex flex-none items-center gap-1 text-[11px] text-ok">
+          <RadioTower size={11} className="flex-none" />
+          {t('mode.remote')}
+        </span>
+      )}
       <Dialog
         open={open}
         onOpenChange={(next) => {

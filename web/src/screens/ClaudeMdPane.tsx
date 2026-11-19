@@ -94,7 +94,7 @@ function FileView({ f, project, onChanged, levelName }: { f: ClaudeMdFile; proje
         <AskClaude task="admin-claude-md" vars={{ path: f.path, level: levelName }} project={f.scope === 'project' ? project : undefined} />
       </div>
       {draft !== null ? (
-        <Textarea aria-label="CLAUDE.md" value={draft} spellCheck={false} onChange={(e) => setDraft(e.target.value)} className="min-h-[60vh] rounded-none border-0 bg-black/30 px-5 py-4 font-mono text-[12.5px] leading-[1.6]" />
+        <Textarea aria-label="CLAUDE.md" value={draft} spellCheck={false} onChange={(e) => setDraft(e.target.value)} className="min-h-[60vh] rounded-none border-0 bg-well px-5 py-4 font-mono text-[12.5px] leading-[1.6]" />
       ) : f.exists && f.content.trim() ? (
         <div className="max-w-4xl px-5 py-4"><Markdown text={f.content} small /></div>
       ) : (

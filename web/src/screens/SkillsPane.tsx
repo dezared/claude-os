@@ -161,7 +161,7 @@ export function SkillEditor({ id, onSaved }: { id: string; onSaved: (s: Skill) =
                   value={text}
                   spellCheck={false}
                   onChange={(e) => setDraft(e.target.value)}
-                  className="h-full rounded-none border-0 border-r border-line2 bg-black/30 px-4 py-3 font-mono text-[12.5px] leading-[1.6] focus:border-line2"
+                  className="h-full rounded-none border-0 border-r border-line2 bg-well px-4 py-3 font-mono text-[12.5px] leading-[1.6] focus:border-line2"
                 />
               )}
               {showPreview && (
@@ -249,7 +249,7 @@ export function SkillRow({ s, maxRuns }: { s: SkillAdminRow; maxRuns: number }) 
         type="button"
         onClick={() => useApp.getState().go(skillView(s))}
         title={s.description ?? s.name}
-        className={cn('press grid w-full grid-cols-[minmax(0,1.1fr)_minmax(0,1.6fr)_120px_90px_72px] items-center gap-4 border-b border-line2 px-5 py-1.5 text-left hover:bg-white/[.04]', s.disabled && 'opacity-50')}
+        className={cn('press grid w-full grid-cols-[minmax(0,1.1fr)_minmax(0,1.6fr)_120px_90px_72px] items-center gap-4 border-b border-line2 px-5 py-1.5 text-left hover:bg-fg/[.04]', s.disabled && 'opacity-50')}
       >
         <span className="truncate text-soft">{s.name}</span>
         <span className="truncate text-xs text-dim">{s.description}</span>

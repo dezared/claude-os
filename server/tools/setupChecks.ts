@@ -1,6 +1,6 @@
 // First-run setup: deterministic checks of the machine (no prompt is sent), then a tab where Claude asks the user and saves the profile.
 import { exec, execFile } from 'node:child_process';
-import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -26,8 +26,6 @@ const SETUP_MODEL = 'sonnet'; // the onboarding is a short talk: no need for the
 const SETUP_EFFORT = 'low';
 const SETUP_TITLE = 'Setup';
 const EXEC_TIMEOUT_MS = 10_000;
-const REPO_LIMIT = 20;
-const SCAN_LIMIT = 2000; // folders looked at under home, so a huge home folder cannot stall the start
 
 export interface SetupCheckDeps {
   claudeBin: string;
@@ -36,8 +34,6 @@ export interface SetupCheckDeps {
   account(): Promise<AccountStatus>;
   nodeVersion: string;
   hasGit(): Promise<boolean>;
-  projectsDir: string | null; // null: not chosen yet
-  writable(p: string): boolean;
 }
 
 const semver = (text: string | null): number[] | null => {
@@ -96,8 +92,6 @@ export async function runSetupChecks(deps: SetupCheckDeps): Promise<SetupCheck[]
   const node = semver(deps.nodeVersion);
   add('node', node && atLeast(node, MIN_NODE) ? 'ok' : 'fail', deps.nodeVersion);
   add('git', (await deps.hasGit().catch(() => false)) ? 'ok' : 'warn');
-  if (deps.projectsDir === null) add('projects-dir', 'ok');
-  else add('projects-dir', deps.writable(deps.projectsDir) ? 'ok' : 'fail', deps.projectsDir);
   return out;
 }
 
@@ -106,7 +100,6 @@ export interface SetupFacts {
   gitName: string | null;
   homeName: string;
   locale: string | null;
-  projectFolders: { path: string; repos: number }[]; // parents of git repositories under home, most repositories first
   memoryProjects: number; // folders in ~/.claude/projects with notes in memory/: counted, never read
 }
 
@@ -114,36 +107,13 @@ const subdirs = (p: string): string[] => safely(() => readdirSync(p, { withFileT
   .filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
   .map((d) => join(p, d.name)).sort(), []);
 
-// Git repositories at most two levels under home, up to REPO_LIMIT.
-export function findRepos(home: string): string[] {
-  const found: string[] = [];
-  let seen = 0;
-  for (const one of subdirs(home)) {
-    if (found.length >= REPO_LIMIT || ++seen > SCAN_LIMIT) break;
-    if (existsSync(join(one, '.git'))) {
-      found.push(one);
-      continue;
-    }
-    for (const two of subdirs(one)) {
-      if (found.length >= REPO_LIMIT || ++seen > SCAN_LIMIT) break;
-      if (existsSync(join(two, '.git'))) found.push(two);
-    }
-  }
-  return found;
-}
-
 export async function collectSetupFacts(o: { home: string; claudeDir: string; env: NodeJS.ProcessEnv; gitName(): Promise<string | null> }): Promise<SetupFacts> {
-  const counts = new Map<string, number>();
-  for (const repo of findRepos(o.home)) counts.set(dirname(repo), (counts.get(dirname(repo)) ?? 0) + 1);
-  const projects = join(o.home, 'Projects');
-  if (!counts.has(projects) && existsSync(projects)) counts.set(projects, 0);
   const memoryProjects = subdirs(join(o.claudeDir, 'projects'))
     .filter((p) => safely(() => readdirSync(join(p, 'memory')).some((f) => f.endsWith('.md')), false)).length;
   return {
     gitName: (await o.gitName().catch(() => null)) || null,
     homeName: basename(o.home),
     locale: o.env.LC_ALL || o.env.LC_MESSAGES || o.env.LANG || safely(() => Intl.DateTimeFormat().resolvedOptions().locale, null),
-    projectFolders: [...counts].map(([path, repos]) => ({ path, repos })).sort((a, b) => b.repos - a.repos),
     memoryProjects,
   };
 }
@@ -179,15 +149,6 @@ export function setupCheckDeps(ctx: Ctx, account: () => Promise<AccountStatus>, 
     account,
     nodeVersion: process.versions.node,
     hasGit: async () => (await run('git', ['--version'])) !== null,
-    projectsDir: ctx.settings?.profile()?.projectsDir ?? null,
-    writable: (p) => {
-      try {
-        accessSync(p, constants.W_OK);
-        return statSync(p).isDirectory();
-      } catch {
-        return false;
-      }
-    },
   };
 }
 

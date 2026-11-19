@@ -1,22 +1,17 @@
 // Project and session management: stop a session, remove a project from Claude's memory, connect a folder.
 // Removal never deletes: everything goes to data/trash with a manifest, and the project's source folder is out of reach.
-import { constants, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { access, readdir, stat } from 'node:fs/promises';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import type { Project, ProjectPatch, ProjectRemovalPreview, ProjectStructureNode, ProjectRemovalResult, RemovalItem, SessionInfo, SessionRemovalPreview, SessionRemovalResult, SessionStopResult } from '../../shared/contract.ts';
+import type { Project, ProjectPatch, ProjectRemovalPreview, ProjectRemovalResult, RemovalItem, SessionInfo, SessionRemovalPreview, SessionRemovalResult, SessionStopResult } from '../../shared/contract.ts';
 import type { Ctx } from '../context.ts';
 import { encodeDir } from '../memory/store.ts';
 import { procStartOf, readRegistry } from './live.ts';
 import { findJournal } from './parse.ts';
-import { classifyDir, gitRootAsync, within, type Projects } from './projects.ts';
+import { within, type Projects } from './projects.ts';
 import { hiddenRoot } from './index.ts';
 
 const MAX_DIRS = 40;
-const STRUCTURE_DEPTH = 2;
-const STRUCTURE_MAX_DIRS = 200;
-const STRUCTURE_MAX_FOLDED = 20;
-const STRUCTURE_BATCH = 16;
 
 function httpError(statusCode: number, message: string, code?: string) {
   return Object.assign(new Error(message), { statusCode, code });
@@ -332,91 +327,5 @@ export function registerManage(ctx: Ctx, deps: ManageDeps): void {
     } catch {
       return [];
     }
-  });
-
-  // ---------- Structure ----------
-
-  // All of it async and in batches: a root on a slow mount (drvfs, 9p) must not hold up every other request.
-  const inBatches = async <T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> => {
-    const out: R[] = [];
-    for (let i = 0; i < items.length; i += STRUCTURE_BATCH) out.push(...await Promise.all(items.slice(i, i + STRUCTURE_BATCH).map(fn)));
-    return out;
-  };
-  // Symlinks are not followed: a link to a parent would loop, and a link elsewhere is not a folder of this tree.
-  const subdirs = async (path: string): Promise<string[]> => {
-    try {
-      return (await readdir(path, { withFileTypes: true }))
-        .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
-        .map((e) => join(path, e.name))
-        .sort((a, b) => a.localeCompare(b));
-    } catch {
-      return [];
-    }
-  };
-  const isDirAsync = async (path: string) => (await stat(path).catch(() => null))?.isDirectory() === true;
-
-  app.get<{ Querystring: { root?: string } }>('/api/projects/structure', async (req): Promise<ProjectStructureNode> => {
-    const asked = req.query.root?.trim();
-    const own = ctx.settings?.profile()?.projectsDir;
-    // The profile's folder may be gone since it was chosen: home is still a useful place to look.
-    const raw = asked ? expand(asked) : own && await isDirAsync(own) ? own : homedir();
-    if (!isAbsolute(raw)) throw httpError(400, 'the root must be absolute');
-    const root = resolve(raw);
-    try {
-      if (!(await stat(root)).isDirectory()) throw httpError(400, 'not a directory');
-      await access(root, constants.R_OK | constants.X_OK);
-    } catch (err) {
-      if ((err as { statusCode?: number }).statusCode) throw err;
-      const code = (err as NodeJS.ErrnoException).code;
-      throw httpError(400, code === 'ENOENT' || code === 'ENOTDIR' ? 'no such directory' : `the directory cannot be read (${code ?? 'error'})`);
-    }
-
-    // Level by level, in name order: the cap cuts the same folders on every call.
-    type Item = { path: string; parent: Item | null; gitTop: string | null; node?: ProjectStructureNode };
-    const levels: Item[][] = [[{ path: root, parent: null, gitTop: null }]];
-    let count = 1;
-    let truncated = false;
-    for (let depth = 1; depth <= STRUCTURE_DEPTH; depth++) {
-      const parents = levels[depth - 1];
-      const listings = await inBatches(parents, (it) => subdirs(it.path));
-      const level: Item[] = [];
-      parents.forEach((parent, i) => {
-        const found = listings[i].slice(0, Math.max(0, STRUCTURE_MAX_DIRS - count));
-        if (found.length < listings[i].length) truncated = true;
-        count += found.length;
-        level.push(...found.map((path) => ({ path, parent, gitTop: null })));
-      });
-      levels.push(level);
-    }
-    // Only a folder with its own .git can start another repo: the rest of a repo answers as its parent did.
-    for (const level of levels) {
-      await inBatches(level, async (it) => {
-        const ownGit = !it.parent || await access(join(it.path, '.git')).then(() => true, () => false);
-        it.gitTop = ownGit ? await gitRootAsync(it.path) : it.parent!.gitTop;
-      });
-    }
-
-    const rows = deps.projects.rows();
-    const listed = new Set(deps.listProjects().map((p) => p.key));
-    const folded = db.prepare('SELECT cwd FROM cwd_projects WHERE project = ? AND cwd != ? ORDER BY cwd LIMIT ?');
-    const inService = (path: string) => [paths.service, paths.setup].some((d) => Boolean(d) && within(path, d));
-    for (const level of levels) {
-      for (const it of level) {
-        const node: ProjectStructureNode = {
-          path: it.path,
-          name: basename(it.path) || it.path,
-          ...classifyDir(it.path, { gitTop: it.gitTop, forcedRoot: deps.projects.forcedRoot(it.path), hidden: hiddenRoot(it.path, paths) || inService(it.path) }, rows, listed),
-        };
-        if ((node.kind === 'project' || node.kind === 'misc') && node.project) {
-          const cwds = (folded.all(node.project, it.path, STRUCTURE_MAX_FOLDED) as unknown as { cwd: string }[]).map((r) => r.cwd);
-          if (cwds.length > 0) node.folded = cwds;
-        }
-        it.node = node;
-        if (it.parent) (it.parent.node!.children ??= []).push(node);
-      }
-    }
-    const top = levels[0][0].node!;
-    if (truncated) top.truncated = true;
-    return top;
   });
 }

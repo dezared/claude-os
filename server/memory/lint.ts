@@ -57,9 +57,11 @@ function nonLatinRatio(text: string): number {
     .replace(/^(```|~~~)[\s\S]*?^\1.*$/gm, '')
     .replace(/`[^`\n]*`/g, '')
     .replace(/"[^"\n]*"|«[^»\n]*»|“[^”\n]*”/g, '');
-  const letters = prose.match(/\p{L}/gu) ?? [];
-  if (!letters.length) return 0;
-  return letters.filter((c) => !/\p{Script=Latin}/u.test(c)).length / letters.length;
+  // Counted without an array of every letter: that was the hot spot of a vault-wide lint. UTF-16 length is
+  // close enough for a ratio.
+  const letters = prose.replace(/\P{L}+/gu, '').length;
+  if (!letters) return 0;
+  return (prose.match(/[^\p{Script=Latin}\P{L}]/gu)?.length ?? 0) / letters;
 }
 
 // The issues of one note, in check order.

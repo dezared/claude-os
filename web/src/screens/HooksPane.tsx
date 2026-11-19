@@ -20,7 +20,7 @@ export function HookLine({ h }: { h: HookAdminRow }) {
       <button
         type="button"
         onClick={() => useApp.getState().go({ kind: 'entity', type: 'hook', id: hookId(h), ...(h.project ? { project: h.project } : {}) })}
-        className="press grid w-full grid-cols-[150px_120px_minmax(0,1fr)_180px] items-center gap-3 border-b border-line2 px-5 py-1.5 text-left text-xs hover:bg-white/[.04]"
+        className="press grid w-full grid-cols-[150px_120px_minmax(0,1fr)_180px] items-center gap-3 border-b border-line2 px-5 py-1.5 text-left text-xs hover:bg-fg/[.04]"
       >
         <span className="truncate text-soft">{h.event}</span>
         <span className="truncate font-mono text-[11px] text-dim" title={h.matcher ?? undefined}>{h.matcher ?? t('adm.hookAny')}</span>

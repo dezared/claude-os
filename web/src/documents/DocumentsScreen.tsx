@@ -9,6 +9,7 @@ import { Button, IconButton, Input, Segmented, Select } from '@/components/ui';
 import type { MenuItem } from '@/home/ActionMenu';
 import { useApi } from '@/lib/api';
 import { KIND_ICON, KIND_LABEL, openDocument } from '@/lib/documents';
+import { useFlip } from '@/lib/flip';
 import { cn, fmtAgo } from '@/lib/format';
 import { locale, t } from '@/lib/i18n';
 import { knowledgeLabel } from '../../../shared/documents.ts';
@@ -57,8 +58,9 @@ function Card({ doc, words, menu }: { doc: DocumentInfo; words: string[]; menu: 
       <button
         type="button"
         data-document={doc.id}
+        data-flip={doc.id}
         onClick={() => void openDocument(doc.id)}
-        className="press group flex w-full flex-col rounded-xl border border-line2 bg-white/[.02] text-left transition-[border-color,background-color,translate] duration-150 ease-out hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[.05]"
+        className="press group flex w-full flex-col rounded-xl border border-line2 bg-fg/[.02] light:bg-card text-left transition-[border-color,background-color,translate] duration-150 ease-out hover:-translate-y-0.5 hover:border-fg/20 hover:bg-fg/[.05]"
       >
         <Thumb doc={doc} />
         <div className="flex min-w-0 flex-col gap-1 border-t border-line2 px-3 py-2.5">
@@ -104,7 +106,7 @@ function KnowledgePane() {
         {q.data.map((k) => {
           const Icon = KIND_ICON[k.kind];
           return (
-            <button key={k.id} type="button" data-knowledge={k.id} onClick={() => setOpen(k.id)} className="press flex min-w-0 flex-col gap-1.5 rounded-xl border border-line2 bg-white/[.02] p-3 text-left transition-colors duration-150 hover:border-white/20 hover:bg-white/[.05]">
+            <button key={k.id} type="button" data-knowledge={k.id} onClick={() => setOpen(k.id)} className="press flex min-w-0 flex-col gap-1.5 rounded-xl border border-line2 bg-fg/[.02] light:bg-card p-3 text-left transition-colors duration-150 hover:border-fg/20 hover:bg-fg/[.05]">
               <strong className="flex items-center gap-2 text-[13px] font-medium text-soft"><Icon size={13} className="flex-none text-dim" /><span className="truncate">{knowledgeLabel(k, locale()).name}</span></strong>
               <span className="line-clamp-2 text-xs leading-[1.45] text-muted">{knowledgeLabel(k, locale()).description}</span>
               <span className="text-[11px] text-dim">{t('documents.knowledgeCount', { n: k.documents })} · {t(k.customized ? (k.builtin ? 'documents.knowledgeChanged' : 'documents.knowledgeOwn') : 'documents.knowledgeBuiltin')}</span>
@@ -144,6 +146,8 @@ export function DocumentsScreen({ project: initial, pane: initialPane }: { proje
   const q = useApi<DocumentInfo[]>(`/api/documents?q=${encodeURIComponent(query)}`, ['documents']);
   // A new search has no answer yet: the cards of the last one stay until it comes, so the screen does not blink.
   const lastAnswer = useRef<DocumentInfo[] | undefined>(undefined);
+  const cards = useRef<HTMLDivElement>(null);
+  useFlip(cards); // a filter or a search: the cards that stay slide to their places, the rest fade out
   if (q.data) lastAnswer.current = q.data;
   const found = q.data ?? lastAnswer.current;
   // The filter is by what is shown in the list of all: a project with no documents is no choice.
@@ -218,7 +222,7 @@ export function DocumentsScreen({ project: initial, pane: initialPane }: { proje
       ) : shown.length === 0 ? (
         <Empty className="flex-1" icon={filtered ? Search : Library}>{t(filtered ? 'documents.nothing' : 'documents.empty')}</Empty>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto px-5 pt-4 pb-2">
+        <div ref={cards} className="relative min-h-0 flex-1 overflow-auto px-5 pt-4 pb-2">
           {groups.map((g) => g.title === null ? (
             <div key={g.key} className="mb-7 grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
               {g.docs.map((d) => <Card key={d.id} doc={d} words={words} menu={menu} />)}

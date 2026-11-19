@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, ClipboardCopy, Code, Eye, LayoutGrid, ShieldAlert, Trash2, type LucideIcon } from 'lucide-react';
+import { ChevronDown, ChevronUp, ClipboardCopy, Eye, LayoutGrid, ShieldAlert, Trash2, type LucideIcon } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { claudeItems, useContextMenu } from '@/components/ContextMenu';
@@ -10,7 +10,7 @@ import { locale, t } from '@/lib/i18n';
 import { askClaude, type AskSubject } from '@/lib/microtask';
 import { toast, toastError } from '@/lib/store';
 import { openTabWithPrompt } from '@/lib/tabs';
-import type { AppStatus, HomeLayout, HomeSlot, SettingsView, WidgetAction, WidgetDef, WidgetValue, WidgetView } from '@/lib/types';
+import type { HomeLayout, HomeSlot, SettingsView, WidgetAction, WidgetDef, WidgetValue, WidgetView } from '@/lib/types';
 import { PluginBoundary } from '@/lib/uiPlugins';
 import type { MenuItem } from './ActionMenu';
 import { panelChangeItem } from './Customize';
@@ -63,12 +63,6 @@ function fill(def: WidgetDef) {
 }
 
 type ViewSource = { file: string; sha: string; text: string };
-
-/** A new tab in the root of the Claude OS repository, to work on the widget together with the user. */
-function develop(def: WidgetDef, cwd: string) {
-  const prompt = `Develop the Claude OS widget "${def.title}" together with the user. The working directory is the root of the Claude OS repository. The widget's entry in \`config/widgets.json\` now:\n${JSON.stringify(entryOf(def))}\n\nFirst read \`plugins/os-builder/skills/claude-os-widgets/SKILL.md\` and follow it. Keep its id and slot, keep \`icon\` (a Lucide name) and \`description\` (what it shows, Markdown) filled in. A new or changed command or view stays pending until the user approves it on the widget: say so if that happens. Start by asking the user what to change.`;
-  openTabWithPrompt({ cwd, prompt, title: def.title, source: 'widget', sourceDetail: def.id }).catch(toastError);
-}
 
 /** A fence longer than any run of backticks inside, so the code cannot close it. */
 function fenced(lang: string, text: string): string {
@@ -347,7 +341,6 @@ function Frame({
   iconSvg,
   description,
   tipOnly,
-  onDevelop,
   head,
   bare,
   fluid,
@@ -368,7 +361,6 @@ function Frame({
   description?: string;
   /** The description stays in the title's tooltip, never a line in the body. */
   tipOnly?: boolean;
-  onDevelop?: () => void;
   head?: (collapsed: boolean) => ReactNode;
   bare?: boolean;
   fluid?: boolean;
@@ -490,11 +482,6 @@ function Frame({
         {iconSvg ? <span aria-hidden data-widget-icon className="widget-icon flex-none text-accent" style={{ maskImage: `url("data:image/svg+xml;utf8,${encodeURIComponent(iconSvg)}")` }} /> : Icon && <Icon size={13} data-widget-icon className="flex-none text-accent" />}
         <h2 className="min-w-0 flex-1 truncate text-[12px] font-medium text-soft">{title}</h2>
         {head?.(collapsed)}
-        {onDevelop && (
-          <IconButton label={t('widget.develop')} className="widget-dev size-6 flex-none" onClick={onDevelop}>
-            <Code size={13} />
-          </IconButton>
-        )}
         <IconButton label={t(collapsed ? 'widget.expand' : 'widget.collapse', { title })} aria-expanded={!collapsed} className="widget-toggle size-6 flex-none" onClick={toggle}>
           <ChevronUp size={13} className={cn('transition-transform duration-200', collapsed && 'rotate-180')} />
         </IconButton>
@@ -593,7 +580,6 @@ function swallowClick() {
 export function HomeSlots({ panels, before, after, coreKey, placing, onPlaced }: { panels: Record<BuiltinId, PanelView>; before: ReactNode; after: ReactNode; coreKey: string | null; placing: boolean; onPlaced: () => void }) {
   const widgets = useApi<Widgets>('/api/widgets', ['widgets']);
   const settings = useApi<SettingsView>('/api/settings', ['settings']);
-  const status = useApi<AppStatus>('/api/app/status');
   const [approve, setApprove] = useState<WidgetDef | null>(null);
   const [size, setSize] = useState(windowSize);
   const [zones, setZones] = useState<Zone[] | null>(null);
@@ -609,7 +595,6 @@ export function HomeSlots({ panels, before, after, coreKey, placing, onPlaced }:
 
   const defs = widgets.data?.defs ?? [];
   const home = settings.data?.home ?? EMPTY_HOME;
-  const osRoot = status.data?.repo; // the Claude OS repository itself: config/ and plugins/ are right under it
   const all = stacks(home, defs, size);
   const shown = (slot: HomeSlot) => all[slot].filter((id) => !home.hidden.includes(id) && !(isBuiltin(id) && panels[id].empty));
 
@@ -797,7 +782,6 @@ export function HomeSlots({ panels, before, after, coreKey, placing, onPlaced }:
         icon={LayoutGrid}
         iconSvg={def.iconSvg}
         description={def.description}
-        onDevelop={osRoot ? () => develop(def, osRoot) : undefined}
         {...shared}
         items={[...claudeItems(subject(def)), { id: 'widget.copyMd', label: t('widget.copyMd'), icon: ClipboardCopy, onSelect: () => void copyAsMarkdown(def) }]}
         height={height}

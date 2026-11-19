@@ -46,7 +46,7 @@ export function KnowledgeDialog({ id, onClose }: { id: string; onClose: () => vo
           ) : (
             <Textarea aria-label={t('documents.knowledgeText')} autoFocus rows={22} value={draft} onChange={(e) => setDraft(e.target.value)} className="font-mono text-xs leading-[1.55]" />
           )}
-          <div className="sticky -bottom-4 -mx-4 -mb-4 flex flex-wrap items-center justify-end gap-2 rounded-b-2xl border-t border-line2 bg-[#141416] px-4 py-2.5">
+          <div className="sticky -bottom-4 -mx-4 -mb-4 flex flex-wrap items-center justify-end gap-2 rounded-b-2xl border-t border-line2 bg-panel px-4 py-2.5">
             {draft === null ? (
               <>
                 {k.builtin && k.customized && (

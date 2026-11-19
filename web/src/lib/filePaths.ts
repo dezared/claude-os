@@ -1,6 +1,6 @@
 // Paths as Claude writes them in a reply or a tool's output.
 const SEGMENT = String.raw`[\p{L}\p{N}_@.+-]+`;
-const KNOWN = 'ts|tsx|js|jsx|mjs|cjs|json|md|py|php|go|rs|java|kt|rb|c|h|cpp|hpp|cs|css|scss|html|vue|svelte|yml|yaml|toml|ini|sh|sql|txt|xml|lock|log|csv|png|jpe?g|gif|webp|avif|bmp';
+const KNOWN = 'ts|tsx|js|jsx|mjs|cjs|json|md|py|php|go|rs|java|kt|rb|c|h|cpp|hpp|cs|css|scss|html|vue|svelte|yml|yaml|toml|ini|sh|sql|txt|xml|lock|log|csv|tsv|png|jpe?g|gif|webp|avif|bmp|ico|svg|pdf|xlsx|ods';
 
 // A folder in front or a known extension: "and/or", "1/2" and "e.g." are not files. Not after a word or a slash: no part of a URL.
 const PATH = new RegExp(
@@ -16,7 +16,7 @@ const PATH = new RegExp(
   'gu',
 );
 
-const IMAGE = /\.(png|jpe?g|gif|webp|avif|bmp)$/i;
+const IMAGE = /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i;
 const WORD_JS = /^[A-Z][a-z]+\.js$/; // Node.js, Vue.js: names, not files
 
 export interface FoundPath {

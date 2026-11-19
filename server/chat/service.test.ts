@@ -324,7 +324,7 @@ describe('tasks from the user', () => {
   it('a filing job right after it still gets the narrow tools; both get the profile block', async () => {
     const srv = await startServer({ FAKE_CLAUDE_SERVICE: 'do' });
     try {
-      assert.equal((await srv.api('PUT', '/api/settings/profile', { name: 'Ann', language: 'de', projectsDir: srv.dir, questionLevel: 'balanced' })).status, 200);
+      assert.equal((await srv.api('PUT', '/api/settings/profile', { name: 'Ann', language: 'de', questionLevel: 'balanced' })).status, 200);
       const task = await start(srv, 'Вопрос');
       await waitUntil(async () => (await status(srv, task.id)) === 'done', 'done');
       const created = await add(srv, 'Заметка');

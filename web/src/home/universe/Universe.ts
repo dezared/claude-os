@@ -6,7 +6,7 @@ import { SceneCard } from './anchor';
 import { CORE_COLOR, makePalette, starColor, THEMES, type Palette, type SkyColors } from './colors';
 import { buildDust } from './dust';
 import { LabelLayer } from './labels';
-import { constellationAt, hash01, layoutUniverse, R, Slots, STAR_PULSAR, type Constellation, type Star, type UniverseLayout } from './layout';
+import { constellationAt, hash01, layoutUniverse, R, Slots, type Constellation, type Star, type UniverseLayout } from './layout';
 import { advance, FrameWatch, IDLE_PACE, pickOrbits, WORK_PACE, type OrbitSession, type Phase } from './orbits';
 import { compositeProgram, dustProgram, lineProgram, SPRITE_FLOATS, spriteProgram } from './shaders';
 
@@ -37,21 +37,20 @@ const TRAIL_ARC = 1.9; // radians behind the head
 const MIN_TRAIL_SEGMENTS = 8;
 const TRAIL_SEGMENT_PX = 6; // a trail far away is a few pixels long: more pieces than this would not be seen
 const CORE_PULSE_S = 1.6;
-const MAX_PULSARS = 64;
-const PULSE_ALPHA = 0.6;
 const TIP_GAP = 20;
 const STAR_FLOOR_FULL = 1.6; // px per world unit from which, closer, a star keeps its whole size on screen
 const STAR_FLOOR_POWER = 1; // as fast as the distances between the stars shrink: any slower and a far cluster fills up with light
 const STAR_FLOOR_PX = 2.2; // and the least it comes down to: under this its core falls between the pixels and twinkles as the camera moves
 const LOOSE_LINK_ALPHA = 0.07; // a project's own link outside the figure
+const LINK_WIDTH_MIN = 0.6; // of the base line width: the weakest link...
+const LINK_WIDTH_SPREAD = 1.5; // ...and how much thicker the strongest one is
 const FIGURE_ALPHA = 0.55;
 const FAN_LINES = 2.2;
-const SKELETON_ALPHA = 0.16;
 const SPOKE_ALPHA = 0.24;
 const CENTER_WORLD = 0.24; // a project's central star, of its constellation's radius
 const CENTER_PX = 5.5; // and the least it comes down to: from afar a project is this one point of its colour
 const CENTER_HIT_PX = 12;
-const STAR_CENTER = 5; // the shader's branch for it, next to the note styles of layout.ts
+const STAR_CENTER = 5; // the shader's branch for it; a note is 0
 const CROSS_ALPHA = 0.03; // barely there: lit on request, a hundred projects' worth of them is what turned the map into a hairball
 const CROSS_ALPHA_LIT = 0.85;
 const CROSS_COLOR = [0.72, 0.78, 0.92] as const;
@@ -131,6 +130,7 @@ export class Universe {
   private stateBuf!: WebGLBuffer;
   private styleBuf!: WebGLBuffer;
   private linkBuf!: WebGLBuffer;
+  private linkWidthBuf!: WebGLBuffer;
   private dynSprite!: WebGLBuffer;
   private dustCount = 0;
   private nebulaCount = 0;
@@ -143,7 +143,7 @@ export class Universe {
   private parents = new Map<string, string>();
   private tethers: [Constellation, Constellation][] = [];
 
-  private layout: UniverseLayout = { stars: [], constellations: [], links: [], skeleton: [], spokes: [] };
+  private layout: UniverseLayout = { stars: [], constellations: [], links: [], spokes: [] };
   private slots = new Slots();
   /** Stars whose note is gone, still fading out. They come after the real stars in `stars` and every buffer. */
   private ghosts: Star[] = [];
@@ -188,8 +188,6 @@ export class Universe {
   private covered = false;
   private fixedQuality = localStorage.getItem(QUALITY_KEY) === 'full';
   private frames = new FrameWatch();
-  /** Stars that pulse. Only while the loop is running anyway: they rest in the scene as still pulsars and an idle map stays idle. */
-  private pulsars: number[] = [];
   private pulseClock = 0;
   private corePulse = false;
   private tip: SceneCard | null = null;
@@ -470,7 +468,7 @@ export class Universe {
 
   private sizeOverlay() {
     const moons = this.orbits.reduce((n, o) => n + o.moons.length, 0);
-    const sprites = this.allConstellations().length * 2 + this.orbits.length + moons + this.pulsars.length + 5;
+    const sprites = this.allConstellations().length * 2 + this.orbits.length + moons + 5;
     if (this.spriteData.length < sprites * SPRITE_FLOATS) this.spriteData = new Float32Array(sprites * 2 * SPRITE_FLOATS);
     const segments = (this.orbits.length * TRAIL_SEGMENTS + moons * MOON_TRAIL_SEGMENTS) * LINE_FLOATS;
     if (this.trailData.length < segments) this.trailData = new Float32Array(segments * 2);
@@ -647,9 +645,9 @@ export class Universe {
     this.rebuildBuffers();
   }
 
-  // Real links are the bright lines; the skeleton of the same colour stays far behind them.
+  // Real links are the bright lines; the spokes of the same colour stay far behind them.
   private writeLinks() {
-    const { links, skeleton, spokes, stars, constellations } = this.layout;
+    const { links, spokes, stars, constellations } = this.layout;
     const { state, linkData, palette } = this;
     const hover = this.hoverStar;
     const selected = this.selected;
@@ -671,23 +669,15 @@ export class Universe {
       // Negative: asked for by hand, so a short line on screen does not fade.
       linkData[o + 3] = hot ? -1 : l.cross && this.crossLit ? -strength * a : strength * a;
     });
-    skeleton.forEach(([x, y], i) => {
-      const o = (links.length + i) * LINE_FLOATS + 6;
-      const c = palette.of(constellations[stars[x].c].key);
-      linkData[o] = c[0];
-      linkData[o + 1] = c[1];
-      linkData[o + 2] = c[2];
-      linkData[o + 3] = SKELETON_ALPHA * Math.min(state[x * 2], state[y * 2]);
-    });
     spokes.forEach(([k, star], i) => {
-      const o = (links.length + skeleton.length + i) * LINE_FLOATS + 6;
+      const o = (links.length + i) * LINE_FLOATS + 6;
       const c = palette.of(constellations[k].key);
       linkData[o] = c[0];
       linkData[o + 1] = c[1];
       linkData[o + 2] = c[2];
       linkData[o + 3] = SPOKE_ALPHA * state[star * 2];
     });
-    let o = (links.length + skeleton.length + spokes.length) * LINE_FLOATS + 6;
+    let o = (links.length + spokes.length) * LINE_FLOATS + 6;
     const dimmed = this.highlight != null || (this.focusKey !== undefined && !this.constellationOf(this.focusKey)?.core);
     for (const ring of this.ringsDrawn()) {
       for (let i = 0; i < ring.segments; i++, o += LINE_FLOATS) {
@@ -844,17 +834,14 @@ export class Universe {
     this.draw();
     if (this.visible) {
       this.labels.update(this.camera, this.allConstellations(), this.layout.stars, now, moved);
-      if (moved || this.cardsMoving || this.cardsNew) this.stepCards(dt);
+      if (moved || this.cardsMoving) this.stepCards(dt);
     }
 
     if (this.visible && (orbiting || pulsing || this.cameraMoving || this.stateMoving || this.starFade < 1 || this.held.size > 0 || this.cardsMoving || this.glide || this.coreFlash > 0)) this.raf = requestAnimationFrame(this.frame);
     else this.last = 0;
   };
 
-  private cardsNew = false;
-
   private stepCards(dt: number) {
-    this.cardsNew = false;
     const tip = this.tip?.step(this.camera, dt) ?? false;
     const card = this.card?.step(this.camera, dt) ?? false;
     this.cardsMoving = tip || card;
@@ -880,7 +867,8 @@ export class Universe {
         goal: (sx, sy, w, h) => [sx + TIP_GAP + w > this.camera.width ? sx - TIP_GAP - w : sx + TIP_GAP, sy - TIP_GAP - h < 0 ? sy + TIP_GAP : sy - TIP_GAP - h],
       }, this.reduce);
     }
-    this.cardsNew = true;
+    // Placed now, inside React's layout phase: the browser never paints a new card at the corner of the window.
+    this.stepCards(0);
     this.kick();
   }
 
@@ -899,7 +887,8 @@ export class Universe {
         goal: (sx, sy) => [box.left + sx - at.sx, box.top + sy - at.sy],
       }, this.reduce, 0.5);
     }
-    this.cardsNew = true;
+    // Placed now, inside React's layout phase: the browser never paints a new card at the corner of the window.
+    this.stepCards(0);
     this.kick();
   }
 
@@ -926,6 +915,7 @@ export class Universe {
     this.stateBuf = gl.createBuffer()!;
     this.styleBuf = gl.createBuffer()!;
     this.linkBuf = gl.createBuffer()!;
+    this.linkWidthBuf = gl.createBuffer()!;
     this.dynSprite = gl.createBuffer()!;
     this.dynLine = gl.createBuffer()!;
     this.scene = null;
@@ -952,7 +942,7 @@ export class Universe {
   }
 
   private rebuildBuffers() {
-    const { stars, links, skeleton, spokes, constellations } = this.layout;
+    const { stars, links, spokes, constellations } = this.layout;
     const gl = this.gl;
     const data = new Float32Array(stars.length * SPRITE_FLOATS);
     const styles = new Float32Array(stars.length * 2);
@@ -963,7 +953,7 @@ export class Universe {
       // A note outside the vault is read only: its project's colour, washed toward cold steel.
       const wash = s.node.connected ? 0 : 0.28;
       const big = owner?.core ? 1.15 : 1;
-      styles[i * 2] = s.style;
+      styles[i * 2] = 0;
       styles[i * 2 + 1] = owner ? owner.stars.length / (Math.PI * owner.r * owner.r) : 0;
       data.set([s.x, s.y, s.z, 2.3 * s.k * big, 11.5 * s.k * big, c[0] * (1 - wash) + 0.72 * wash, c[1] * (1 - wash) + 0.8 * wash, c[2] * (1 - wash) + wash, 1], o);
     });
@@ -974,7 +964,6 @@ export class Universe {
     gl.bufferData(gl.ARRAY_BUFFER, this.state, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.styleBuf);
     gl.bufferData(gl.ARRAY_BUFFER, styles, gl.STATIC_DRAW);
-    this.pulsars = stars.flatMap((s, i) => (s.style === STAR_PULSAR && s.c >= 0 ? [i] : [])).sort((a, b) => stars[b].node.degree - stars[a].node.degree || a - b).slice(0, MAX_PULSARS);
     this.sizeOverlay();
 
     this.crossStars = new Set(this.crossLit ? links.filter((l) => l.cross).flatMap((l) => [l.a, l.b]) : []);
@@ -985,21 +974,26 @@ export class Universe {
       return a && b ? [[a, b] as [Constellation, Constellation]] : [];
     });
     const rings = this.ringsDrawn();
-    this.linkData = new Float32Array((links.length + skeleton.length + spokes.length + rings.reduce((n, r) => n + r.segments, 0) + this.tethers.length) * LINE_FLOATS);
+    const lines = links.length + spokes.length + rings.reduce((n, r) => n + r.segments, 0) + this.tethers.length;
+    this.linkData = new Float32Array(lines * LINE_FLOATS);
+    // Thickness by strength for the links, the base width for the rest.
+    const widths = new Float32Array(lines).fill(1);
+    links.forEach((l, i) => (widths[i] = l.cross ? 1 : LINK_WIDTH_MIN + LINK_WIDTH_SPREAD * l.w));
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.linkWidthBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, widths, gl.STATIC_DRAW);
     const place = (a: number, b: number, i: number) => {
       const A = stars[a];
       const B = stars[b];
       this.linkData.set([A.x, A.y, A.z, B.x, B.y, B.z], i * LINE_FLOATS);
     };
     links.forEach((l, i) => place(l.a, l.b, i));
-    skeleton.forEach(([a, b], i) => place(a, b, links.length + i));
     spokes.forEach(([k, star], i) => {
       const c = constellations[k];
       const S = stars[star];
-      this.linkData.set([c.x, c.y, c.z, S.x, S.y, S.z], (links.length + skeleton.length + i) * LINE_FLOATS);
+      this.linkData.set([c.x, c.y, c.z, S.x, S.y, S.z], (links.length + i) * LINE_FLOATS);
     });
     const core = constellations.find((c) => c.core);
-    let at = links.length + skeleton.length + spokes.length;
+    let at = links.length + spokes.length;
     for (const ring of rings) {
       const r = core!.r * ring.r;
       for (let i = 0; i < ring.segments; i++, at++) {
@@ -1132,7 +1126,8 @@ export class Universe {
     this.drawOverlay(rw, rh, k);
   }
 
-  private bindLines(buf: WebGLBuffer) {
+  /** widths: one factor of the base width per line; without it every line has the base width. */
+  private bindLines(buf: WebGLBuffer, widths: WebGLBuffer | null = null) {
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     const attr = (loc: number, size: number, at: number) => {
@@ -1143,7 +1138,15 @@ export class Universe {
     attr(1, 3, 0);
     attr(2, 3, 12);
     attr(3, 4, 24);
-    gl.disableVertexAttribArray(4);
+    if (widths) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, widths);
+      gl.enableVertexAttribArray(4);
+      gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribDivisor(4, 1);
+    } else {
+      gl.disableVertexAttribArray(4);
+      gl.vertexAttrib1f(4, 1);
+    }
     gl.disableVertexAttribArray(5);
     gl.disableVertexAttribArray(6);
   }
@@ -1268,7 +1271,7 @@ export class Universe {
     this.bindQuad();
     this.setSpriteView(rw, rh, k);
 
-    // Links and skeleton.
+    // Links and spokes.
     const lineCount = this.linkData.length / LINE_FLOATS;
     if (lineCount > 0) {
       gl.useProgram(line.p);
@@ -1277,7 +1280,7 @@ export class Universe {
       gl.uniform1f(line.width, 1.15 * k);
       gl.uniform1f(line.gap, 0.08);
       this.bindQuad();
-      this.bindLines(this.linkBuf);
+      this.bindLines(this.linkBuf, this.linkWidthBuf);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, lineCount);
       gl.useProgram(sprite.p);
       this.bindQuad();
@@ -1452,21 +1455,6 @@ export class Universe {
       if (core) {
         const w = 1 - this.coreFlash;
         d.set([core.x, core.y, core.z, NUCLEUS_WORLD * (1 + w * 1.4), NUCLEUS_PX * (1 + (1 - (1 - w) ** 3) * 2.2), CORE_COLOR[0], CORE_COLOR[1], CORE_COLOR[2], 0.7 * this.coreFlash ** 2], o);
-        o += SPRITE_FLOATS;
-        heads++;
-      }
-    }
-
-    // The pulse of the pulsars: their light added over the still star in the scene, in the same draw as the satellites.
-    if (moving) {
-      const { stars: all } = this.layout;
-      const floor = this.starFloor;
-      for (const i of this.pulsars) {
-        const s = all[i];
-        if (camera.depth(s.x, s.y, s.z) <= 0) continue;
-        const period = 1.6 + hash01(s.node.id, 34) * 2.4;
-        const wave = 0.5 + 0.5 * Math.sin((this.pulseClock / period + hash01(s.node.id, 35)) * TAU);
-        d.set([s.x, s.y, s.z, 2.3 * s.k, Math.max(STAR_FLOOR_PX, 11.5 * s.k * floor), 0.74, 0.9, 1, PULSE_ALPHA * Math.min(1, floor * 2) * wave * wave * Math.min(1, this.state[i * 2])], o);
         o += SPRITE_FLOATS;
         heads++;
       }

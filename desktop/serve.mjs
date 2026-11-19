@@ -22,9 +22,14 @@ async function status() {
 }
 const alive = async () => (await status()) !== null;
 
+// The window shows these on its start screen: what is happening while it waits for the URL.
+const stage = (name) => console.log(`STAGE ${name}`);
+
+stage('check');
 // Opening the window after an update must not pair a new page with the old process. Running work is left alone: the page offers the restart then.
 const running = await status();
 if (running?.stale && !running.busy) {
+  stage('update');
   const token = readFileSync(join(data, 'token'), 'utf8').trim();
   await fetch(`http://127.0.0.1:${port}/api/app/restart`, { method: 'POST', headers: { cookie: `claude_os=${token}` } }).catch(() => {});
   for (let i = 0; i < 120 && (await status())?.pid === running.pid; i++) await sleep(250);
@@ -32,6 +37,7 @@ if (running?.stale && !running.busy) {
 }
 
 if (!(await alive())) {
+  stage('spawn');
   mkdirSync(data, { recursive: true });
   const log = openSync(join(data, 'server.log'), 'a');
   spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/index.ts'], {

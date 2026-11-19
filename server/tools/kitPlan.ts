@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { QuestionLevel } from '../../shared/contract.ts';
-import type { KitAnswers, KitCommand, KitDetection, KitFileAction, KitLock, KitLockEntry, KitOwner, KitPlan, KitPlanFile } from '../../shared/projectKit.ts';
+import { DEFAULT_KIT, type KitAnswers, type KitCommand, type KitDetection, type KitFileAction, type KitLock, type KitLockEntry, type KitOwner, type KitPlan, type KitPlanFile } from '../../shared/projectKit.ts';
 import { httpError, safely, sha256, unifiedDiff } from '../memory/util.ts';
 import { kitDetect, onPath } from './kitDetect.ts';
 import { EXEC, type Which } from './kitDetectStacks.ts';
@@ -22,7 +22,8 @@ const AGENTS_NOTE = 'AGENTS.md is over 60 lines: its facts were merged and the i
 export interface PlanInput {
   root: string;
   project: string;
-  kit: { dir: string; version: string };
+  /** `id` names the kit plugin; absent means DEFAULT_KIT. */
+  kit: { id?: string; dir: string; version: string };
   data: string;
   action: 'install' | 'remove';
   answers: KitAnswers;
@@ -284,7 +285,8 @@ function planInstall(acc: Acc, p: Inputs): void {
   const settings = planSettings(acc, p.d, p.o.answers, p.lock);
   const baseline = Object.keys(safely(() => JSON.parse(p.render.get('.claude/kit/size-baseline.json')?.content ?? '{}') as object, {})).length;
   const files = Object.fromEntries(Object.entries(acc.lock).sort(([a], [b]) => (a < b ? -1 : 1)));
-  const lock: KitLock = { kit: p.o.kit.version, installedAt: p.lock?.installedAt ?? Date.now(), sizeAtInstall: p.lock?.sizeAtInstall ?? baseline, files, settings };
+  const id = p.o.kit.id ?? DEFAULT_KIT;
+  const lock: KitLock = { kit: p.o.kit.version, ...(id === DEFAULT_KIT ? {} : { id }), installedAt: p.lock?.installedAt ?? Date.now(), sizeAtInstall: p.lock?.sizeAtInstall ?? baseline, files, settings };
   planChanged(acc, LOCK, json(lock));
 }
 
@@ -327,6 +329,7 @@ export function planKit(o: PlanInput): PlanResult {
     planId: randomUUID(),
     project: o.project,
     root: o.root,
+    kitId: o.kit.id ?? DEFAULT_KIT,
     kit: o.kit.version,
     action,
     files: acc.files,

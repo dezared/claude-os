@@ -14,7 +14,6 @@ import { t, type Key } from '@/lib/i18n';
 import { SERVICE_TOKENS_NAME } from '../../../shared/contract.ts';
 import { AskClaude, ModelChip, modelColor } from './admin/parts';
 import { DayTable, HourChart, metricKey, Section } from './analyticsParts';
-import { KitAnalytics } from './KitAnalytics';
 
 type Range = '1' | '7' | '30' | '90' | '365';
 type Metric = 'sum' | 'input' | 'output' | 'cacheWrite' | 'cacheRead';
@@ -44,7 +43,7 @@ function DayChart({ days, metric }: { days: DayTokens[]; metric: Metric }) {
               <i
                 className={cn(
                   'mx-auto block min-h-px w-[min(100%,18px)] rounded-t-[3px] transition-colors duration-100',
-                  days[i].day === today ? 'bg-accent' : hover === i ? 'bg-white/60' : 'bg-white/22',
+                  days[i].day === today ? 'bg-accent' : hover === i ? 'bg-fg/60' : 'bg-fg/22',
                 )}
                 style={{ height: `${(v / max) * 100}%` }}
               />
@@ -112,7 +111,7 @@ function RankTable({ rows, label, onRow, nameOf, emptyText, lead, colorOf, barCo
                     ) : null}
                   </span>
                   <div className="mt-1 h-1 rounded-[2px] bg-line2">
-                    <i className="block h-full rounded-[2px]" style={{ width: `${(tokenSum(r) / max) * 100}%`, background: colorOf?.(r) ?? barColor?.(r) ?? 'rgba(255,255,255,.45)' }} />
+                    <i className="block h-full rounded-[2px]" style={{ width: `${(tokenSum(r) / max) * 100}%`, background: colorOf?.(r) ?? barColor?.(r) ?? 'color-mix(in srgb, var(--color-fg) 45%, transparent)' }} />
                   </div>
                 </td>
                 <td className="py-1.5 text-right text-muted">{fmtTokens(r.input)}</td>
@@ -146,7 +145,7 @@ function Split({ a }: { a: Analytics }) {
     <div>
       <div className="flex h-3 gap-0.5" role="img" aria-label={t('an.mainPct', { main: fmtPct(mainPct), sub: fmtPct(100 - mainPct) })}>
         <i className="block rounded-l-[3px] bg-accent" style={{ width: `${mainPct}%` }} />
-        <i className="block flex-1 rounded-r-[3px] bg-white/22" />
+        <i className="block flex-1 rounded-r-[3px] bg-fg/22" />
       </div>
       <div className="mt-1.5 flex justify-between text-xs">
         <span>
@@ -205,8 +204,8 @@ function Limits({ windows, forecast }: { windows: LimitWindow[]; forecast: Forec
               <span className="min-w-0 truncate text-soft">{windowLabel(w)}</span>
               <span className="flex-none text-muted">{w.percent == null ? t('common.noData') : `${Math.round(percent)} %`}</span>
             </div>
-            <div className="relative h-1.5 overflow-hidden rounded-[3px] bg-white/10">
-              {projected != null && <i className={cn('absolute inset-y-0 left-0 block rounded-[3px]', over ? 'bg-bad/35' : 'bg-white/20')} style={{ width: `${Math.min(100, projected)}%` }} />}
+            <div className="relative h-1.5 overflow-hidden rounded-[3px] bg-fg/10">
+              {projected != null && <i className={cn('absolute inset-y-0 left-0 block rounded-[3px]', over ? 'bg-bad/35' : 'bg-fg/20')} style={{ width: `${Math.min(100, projected)}%` }} />}
               <i className={cn('absolute inset-y-0 left-0 block rounded-[3px]', over ? 'bg-bad' : percent >= 70 ? 'bg-warn' : 'bg-accent')} style={{ width: `${Math.min(100, percent)}%` }} />
             </div>
             <div className="mt-1 flex flex-wrap justify-between gap-x-3 text-[11px] text-dim">
@@ -229,7 +228,7 @@ function ForecastRow({ f, weekly }: { f: Forecast; weekly: Forecast['windows'][n
     </div>
   );
   return (
-    <section aria-label={t('an.forecast')} className="border-b border-line2 bg-white/[.018]">
+    <section aria-label={t('an.forecast')} className="border-b border-line2 bg-fg/[.018]">
       <div className="flex flex-wrap items-center gap-2 px-5 pt-3">
         <h2 className="flex items-center gap-1.5 text-[12px] font-medium text-soft"><TrendingUp size={13} className="text-dim" />{t('an.forecast')}</h2>
         <span className="text-[11px] text-dim">{t('an.forecastBasis', { n: f.basisDays, avg: fmtTokens(f.dailyAverage), active: f.activeDays })}</span>
@@ -399,7 +398,6 @@ export function AnalyticsView() {
             </>
           )}
         </Boundary>
-        <KitAnalytics from={from} to={to} />
       </div>
     </div>
   );

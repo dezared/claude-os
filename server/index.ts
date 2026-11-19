@@ -14,6 +14,7 @@ import { allowedHost, authCookie, checkRequest, loadToken, safeEqual } from './s
 import { registerJournal } from './journal/index.ts';
 import { endClaudeChildren } from './journal/live.ts';
 import { registerChat } from './chat/index.ts';
+import { registerSecrets } from './chat/secrets.ts';
 import { registerMemory } from './memory/index.ts';
 import { registerTools } from './tools/index.ts';
 import { registerVoice } from './voice/index.ts';
@@ -124,6 +125,7 @@ registerMemory(ctx);
 registerTools(ctx);
 registerVoice(ctx);
 registerChat(ctx);
+registerSecrets(ctx);
 
 const webDist = process.env.CLAUDE_OS_WEB_DIST ?? join(paths.repo, 'dist/web');
 if (existsSync(webDist)) {

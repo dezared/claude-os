@@ -19,7 +19,7 @@ export function PluginRow({ p, maxRuns }: { p: PluginAdminRow; maxRuns: number }
   const open = () => useApp.getState().go({ kind: 'entity', type: 'plugin', id: p.id });
   return (
     <ContextArea items={() => pluginMenu(p)}>
-    <div onClick={open} className={cn('grid cursor-pointer grid-cols-[minmax(0,1.3fr)_minmax(0,1.5fr)_150px_110px_90px] items-center gap-4 border-b border-line2 px-5 py-2 hover:bg-white/[.04]', !p.enabled && p.projects.length === 0 && 'opacity-60')}>
+    <div onClick={open} className={cn('grid cursor-pointer grid-cols-[minmax(0,1.3fr)_minmax(0,1.5fr)_150px_110px_90px] items-center gap-4 border-b border-line2 px-5 py-2 hover:bg-fg/[.04]', !p.enabled && p.projects.length === 0 && 'opacity-60')}>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <button type="button" className="press truncate rounded text-left text-soft">{p.name}</button>

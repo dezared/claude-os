@@ -191,7 +191,7 @@ test('ask dialog: presets fill the text, Enter sends, it goes to the service ses
   const dialog = page.getByRole('dialog', { name: /Изменить с Claude/ });
   const box = dialog.getByRole('textbox');
   assert.ok(await dialog.getByRole('button', { name: 'Отправить' }).isDisabled(), 'empty text does not send');
-  await dialog.getByText(/расход|подписк|токен|тариф|plan/i).first().waitFor();
+  await dialog.getByText(/Выполняет Claude|доплачивать|эквивалент API|токен/i).first().waitFor();
   await box.fill('сделай ярче');
   await box.press('Enter');
   await dialog.waitFor({ state: 'detached' });

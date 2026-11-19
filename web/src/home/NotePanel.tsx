@@ -4,8 +4,9 @@ import { Markdown } from '@/components/Markdown';
 import { ErrorState, Skeleton } from '@/components/states';
 import { Button, IconButton, Textarea } from '@/components/ui';
 import { api, ApiError, invalidateTopics, useApi } from '@/lib/api';
-import { fmtAgo, fmtInt, shortPath } from '@/lib/format';
+import { cn, fmtAgo, fmtInt, shortPath } from '@/lib/format';
 import { has, t, tn } from '@/lib/i18n';
+import { useLast, usePresence } from '@/lib/motion';
 import { toast, toastError, useApp } from '@/lib/store';
 import type { MemoryGraph, MemoryNote, SettingsView } from '@/lib/types';
 import { MigrateDialog } from './MigrateDialog';
@@ -229,10 +230,12 @@ function NoteBody({ id }: { id: string }) {
 }
 
 export function NotePanel() {
-  const id = useApp((s) => s.noteId);
-  if (!id) return null;
+  const open = useApp((s) => s.noteId);
+  const id = useLast(open); // the note stays in the panel while it slides away
+  const { mounted, leaving } = usePresence(open !== null, 190);
+  if (!mounted || !id) return null;
   return (
-    <aside aria-label={t('note.panelAria')} className="note-panel glass-reading absolute inset-y-2 right-2 z-30 flex w-[min(520px,calc(100%-16px))] flex-col overflow-hidden rounded-2xl">
+    <aside aria-label={t('note.panelAria')} className={cn('note-panel glass-reading absolute inset-y-2 right-2 z-30 flex w-[min(520px,calc(100%-16px))] flex-col overflow-hidden rounded-2xl', leaving && 'is-leaving')}>
       <NoteBody key={id} id={id} />
     </aside>
   );

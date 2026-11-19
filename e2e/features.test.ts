@@ -138,7 +138,7 @@ test('git panel: lists, diff in two views, binary and capped states, stage and c
 
   await panel.getByRole('button', { name: 'Исправить через Claude' }).click();
   const task = page.getByRole('dialog', { name: 'Исправить ошибку git' });
-  await task.getByText(/расходуется лимит/).waitFor();
+  await task.getByText(/доплачивать не нужно/).waitFor();
   await task.getByText(/один push ветки feature\/broker/).waitFor();
   await task.getByText(/\[rejected\]/).waitFor();
   await task.getByRole('button', { name: 'Отмена' }).click();
@@ -208,7 +208,7 @@ test('dollars come back only for real API billing', async () => {
   fixtureAccount.billing = 'api';
   try {
     const page = await open({ kind: 'analytics' });
-    await page.getByText('эквивалент API, при подписке не реальный расход').waitFor();
+    await page.getByText('эквивалент API', { exact: true }).waitFor();
     await page.getByText('$413').waitFor();
   } finally {
     fixtureAccount.billing = 'subscription';
@@ -235,14 +235,14 @@ test('settings: IDE list, an unapproved entry, project defaults, language; Claud
   await page.getByRole('button', { name: 'Одобрить запуск' }).waitFor();
   await shot(page, 'settings.png');
   await page.getByRole('button', { name: 'Найти через Claude' }).click();
-  await page.getByRole('dialog').getByText(/Входит в|подписк|API/).waitFor();
+  await page.getByRole('dialog').getByText(/Выполняет Claude|API/).waitFor();
   await page.getByRole('button', { name: 'Отмена' }).click();
   assert.equal(fx!.calls.filter((c) => c.path.endsWith('/send')).length, 0);
   await page.getByRole('button', { name: 'Проекты', exact: true }).click();
   await page.getByText('Новые вкладки проекта начинают').waitFor();
   await page.getByRole('combobox', { name: 'Усилие' }).first().waitFor();
   await page.getByRole('button', { name: 'Общие', exact: true }).click();
-  await page.getByRole('radio', { name: 'EN' }).click();
+  await page.getByRole('radio', { name: 'EN', exact: true }).click();
   await page.getByRole('heading', { name: 'Settings' }).waitFor();
 });
 
@@ -321,7 +321,7 @@ test('project panel: origins, masked settings with a diff, promote shows both fi
 
   await page.getByRole('button', { name: /Проверить настройку/ }).click();
   const task = page.getByRole('dialog', { name: 'Проверить настройку' });
-  await task.getByText(/расходуется лимит/).waitFor();
+  await task.getByText(/доплачивать не нужно/).waitFor();
   await task.getByText('Audit /home/test/alpha-service.').waitFor();
   await task.getByRole('button', { name: 'Отмена' }).click();
 });
@@ -333,7 +333,7 @@ test('a new widget is filled by description: labelled, goes to the service sessi
   await page.getByRole('menuitem', { name: 'Создать виджет' }).click();
   await page.mouse.click(600, 300);
   const task = page.getByRole('dialog', { name: 'Что показать в виджете' });
-  await task.getByText(/расходуется лимит/).waitFor();
+  await task.getByText(/доплачивать не нужно/).waitFor();
   const send = task.getByRole('button', { name: 'Отправить' });
   assert.equal(await send.isDisabled(), true);
   await task.getByRole('textbox').fill('число открытых тикетов');

@@ -26,6 +26,12 @@ export function parseNote(md: string): { fm: Frontmatter | null; body: string } 
   return { fm: parseBlock((m[1] ?? '').split(/\r?\n/), true), body: md.slice(m[0].length) };
 }
 
+// The body alone, for a note whose frontmatter was parsed before (a loaded snapshot keeps no second copy of it).
+export function bodyOf(md: string): string {
+  const m = FM.exec(md);
+  return m ? md.slice(m[0].length) : md;
+}
+
 function parseBlock(lines: string[], nest: boolean): Frontmatter {
   const out: Frontmatter = {};
   let i = 0;

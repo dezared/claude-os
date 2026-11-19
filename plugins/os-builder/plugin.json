@@ -16,6 +16,7 @@
   "icon": "layout-dashboard",
   "version": "1.0.0",
   "author": "Claude OS",
+  "enabledByDefault": true,
   "contains": {
     "skills": [
       "claude-os-widgets",

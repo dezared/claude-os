@@ -1,6 +1,7 @@
 // Planner notes and a small project tree, with made-up data, for UI tests. State lives per fixture server.
 import { createHash } from 'node:crypto';
-import type { FileEntry, PlannerFolder, PlannerNote, ProjectFile, RecoveryItem } from '../shared/contract.ts';
+import type { PlannerFolder, PlannerNote, RecoveryItem } from '../shared/contract.ts';
+import type { FileEntry, ProjectFile } from '../shared/files.ts';
 import { parseItem } from '../shared/plannerItems.ts';
 
 const DIR = '/home/test/claude-os/data/planner';

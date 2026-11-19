@@ -1,10 +1,13 @@
-import { Eye, MessagesSquare, Minus, PanelTopClose, Pin, PinOff, WifiOff, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Eye, MessagesSquare, Minus, PanelTopClose, Pin, PinOff, X } from 'lucide-react';
+import { ConnectionBar } from '@/components/ConnectionBar';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Unauthorized } from '@/App';
 import { AskClaudeDialog } from '@/components/AskClaudeDialog';
+import { BtwDocked, BtwWindow } from '@/components/BtwWindow';
 import { ContextMenuHost } from '@/components/ContextMenu';
 import { popoutBridge } from '@/components/desktop';
 import { MicrotaskDialog } from '@/components/MicrotaskDialog';
+import { Pop } from '@/components/Motion';
 import { ModalServiceTasks, ServiceTaskList } from '@/components/ServiceTasks';
 import { ErrorState, Skeleton } from '@/components/states';
 import { StatusDot } from '@/components/StatusDot';
@@ -63,6 +66,17 @@ function WindowBar({ title, status, children, closeLabel }: { title: string; sta
   );
 }
 
+/** What the session is doing, beside the title: it fades in, changes in place and leaves with the word it had. */
+function StatusWord({ status }: { status: Tab['status'] }) {
+  const last = useRef(status);
+  if (status !== 'idle') last.current = status;
+  return (
+    <Pop show={status !== 'idle'} fade className="flex-none text-[11px] whitespace-nowrap text-muted">
+      <span key={last.current} className="motion-fade inline-block">{statusLabel(last.current)}</span>
+    </Pop>
+  );
+}
+
 function LiveChat({ tab, title }: { tab: Tab; title: string }) {
   const chat = useChat((s) => s.tabs[tab.id]) ?? emptyChat();
   useEffect(() => {
@@ -71,8 +85,8 @@ function LiveChat({ tab, title }: { tab: Tab; title: string }) {
   const status = chat.status ?? tab.status;
   return (
     <>
-      <WindowBar title={title} status={<StatusDot status={status} attention={tab.attention} />}>
-        {status !== 'idle' && <span className="flex-none text-[11px] whitespace-nowrap text-muted">{statusLabel(status)}</span>}
+      <WindowBar title={title} status={<StatusDot status={status} attention={tab.attention} subagents={tab.subagents} />}>
+        <StatusWord status={status} />
       </WindowBar>
       {chat.error && !chat.loaded ? (
         <div className="flex-1 p-3"><ErrorState message={t('work.historyFailed', { error: chat.error })} onRetry={() => void attachTab(tab.id, true)} /></div>
@@ -116,7 +130,7 @@ function ReadonlyChat({ tab }: { tab: Tab }) {
   );
 }
 
-function ChatWindow({ route }: { route: Exclude<PopoutRequest, { kind: 'planner' | 'service' }> }) {
+function ChatWindow({ route }: { route: Exclude<PopoutRequest, { kind: 'planner' | 'service' | 'btw' }> }) {
   const tabs = useApi<Tab[]>('/api/tabs', ['tabs']);
   const tab = tabs.data?.find((x) => (route.kind === 'root' ? x.kind === 'root' : x.id === route.id));
   const gone = Boolean(tabs.data && !tab);
@@ -134,10 +148,9 @@ function ChatWindow({ route }: { route: Exclude<PopoutRequest, { kind: 'planner'
   );
 }
 
-/** One chat, the planner or the service tasks, on a route of its own. No title bar with tabs, no map and so no WebGL: Home is never rendered here. */
+/** One chat, the planner, the service tasks or the side question, on a route of its own. No title bar with tabs, no map and so no WebGL: Home is never rendered here. */
 export function PopoutApp({ route }: { route: PopoutRequest }) {
   const unauthorized = useApp((s) => s.unauthorized);
-  const connection = useApp((s) => s.connection);
   useUiPluginLoader();
   if (unauthorized) return <Unauthorized />;
   return (
@@ -152,17 +165,18 @@ export function PopoutApp({ route }: { route: PopoutRequest }) {
           <WindowBar title={t('service.region')} closeLabel={t('service.closeWindow')} />
           <ServiceTaskList />
         </>
+      ) : route.kind === 'btw' ? (
+        <>
+          <WindowBar title={t('btw.title')} closeLabel={t('btw.close')} />
+          <BtwDocked />
+        </>
       ) : (
         <ChatWindow route={route} />
       )}
-      {connection === 'offline' && (
-        <div role="status" className="flex flex-none items-center gap-2 border-t border-line2 bg-[#2a170f] px-3 py-1 text-xs text-soft">
-          <WifiOff size={12} className="text-accent" />
-          {t('app.offline')}
-        </div>
-      )}
+      <ConnectionBar edge="bottom" />
       <MicrotaskDialog />
       <AskClaudeDialog />
+      {route.kind !== 'btw' && <BtwWindow contextId={route.kind === 'tab' ? route.id : null} />}
       <ModalServiceTasks />
       <FileViewer />
       <ContextMenuHost />

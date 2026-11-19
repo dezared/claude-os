@@ -31,7 +31,7 @@ export function MenuRow({ item, onChoose, id, active, onHover }: { item: MenuIte
         onPointerEnter={onHover}
         className={cn(
           'press flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left outline-none disabled:opacity-40',
-          item.danger ? 'text-[#f0a58c] enabled:hover:bg-accent-bg enabled:focus-visible:bg-accent-bg' : 'text-soft enabled:hover:bg-raised enabled:hover:text-fg enabled:focus-visible:bg-raised enabled:focus-visible:text-fg',
+          item.danger ? 'text-[#f0a58c] light:text-[#b4482c] enabled:hover:bg-accent-bg enabled:focus-visible:bg-accent-bg' : 'text-soft enabled:hover:bg-raised enabled:hover:text-fg enabled:focus-visible:bg-raised enabled:focus-visible:text-fg',
           active && (item.danger ? 'bg-accent-bg' : 'bg-raised text-fg'),
         )}
       >

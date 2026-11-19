@@ -12,7 +12,7 @@ export function MentionMenu({ rows, active, setActive, opened, onPick, onBack }:
         <button type="button" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={onBack} className="press mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-dim hover:text-fg">
           <ChevronLeft size={11} className="flex-none" />
           <opened.icon size={11} className="flex-none" />
-          <span className="min-w-0 flex-1 truncate">{t(opened.label)}</span>
+          <span className="min-w-0 flex-1 truncate">{opened.label()}</span>
           <span className="flex-none">{t('composer.sourceBack')}</span>
         </button>
       )}
@@ -38,8 +38,8 @@ export function MentionMenu({ rows, active, setActive, opened, onPick, onBack }:
             {row.kind === 'section' && (
               <>
                 <row.source.icon size={12} className="flex-none text-accent" />
-                <span className="min-w-0 flex-1 truncate">{t(row.source.label)}</span>
-                <kbd className="flex-none rounded bg-white/[.07] px-1.5 font-sans text-[10.5px] leading-[1.6] text-dim">{t('composer.sourceOpen')}</kbd>
+                <span className="min-w-0 flex-1 truncate">{row.source.label()}</span>
+                <kbd className="flex-none rounded bg-fg/[.07] px-1.5 font-sans text-[10.5px] leading-[1.6] text-dim">{t('composer.sourceOpen')}</kbd>
                 <ChevronRight size={12} className="flex-none text-dim" />
               </>
             )}

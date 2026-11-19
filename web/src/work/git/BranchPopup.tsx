@@ -20,7 +20,7 @@ export interface BranchActions {
 
 function MenuItem({ icon, children, onClick, disabled, danger, autoFocus, title }: { icon?: ReactNode; children: ReactNode; onClick?: () => void; disabled?: boolean; danger?: boolean; autoFocus?: boolean; title?: string }) {
   return (
-    <button type="button" autoFocus={autoFocus} disabled={disabled} title={title} onClick={onClick} className={cn('press flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-xs enabled:hover:bg-raised disabled:opacity-40', danger ? 'text-rose-300' : 'text-soft enabled:hover:text-fg')}>
+    <button type="button" autoFocus={autoFocus} disabled={disabled} title={title} onClick={onClick} className={cn('press flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-xs enabled:hover:bg-raised disabled:opacity-40', danger ? 'text-rose-300 light:text-rose-700' : 'text-soft enabled:hover:text-fg')}>
       <span className="flex w-3.5 flex-none justify-center text-dim">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{children}</span>
     </button>

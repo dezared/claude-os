@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { PROMPT_LABELS, promptSources, QUESTION_LEVELS, sessionProfileBlock, type PromptKind } from './profile.ts';
 import { sessionAppend } from './session.ts';
+import { KANBAN_RULE } from '../../plugins/kanban-plus/server/index.ts';
 
 const REPO = join(import.meta.dirname, '../..');
 const PATHS = { root: join(REPO, 'root'), service: join(REPO, 'service'), setup: join(REPO, 'setup') };
@@ -23,8 +24,8 @@ test('service prompt fits 2 KB', () => {
 
 test('work tab append fits 2 KB at every level', () => {
   for (const questionLevel of Object.keys(QUESTION_LEVELS)) {
-    const ctx = { paths: PATHS, settings: { profile: () => ({ name: 'Ann', language: 'en', questionLevel, projectsDir: '/p' }) } };
-    const append = sessionAppend({ profile: sessionProfileBlock(ctx as never, 'work'), note: null, noteRules: read('root/NOTE_RULES.md'), document: null });
+    const ctx = { paths: PATHS, settings: { profile: () => ({ name: 'Ann', language: 'en', questionLevel }) } };
+    const append = sessionAppend({ profile: sessionProfileBlock(ctx as never, 'work'), note: null, noteRules: read('root/NOTE_RULES.md'), document: null, plugins: [KANBAN_RULE] }); // Kanban+ ships enabled
     assert.ok(Buffer.byteLength(append) <= 2048, `${questionLevel}: ${Buffer.byteLength(append)} B`);
   }
 });

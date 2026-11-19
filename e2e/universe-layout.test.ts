@@ -1,7 +1,7 @@
 // The map of the universe is pure code: no browser needed.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { constellationAt, layoutUniverse, R, Slots, STAR_GIANT, STAR_PULSAR, starSize, starStyle } from '../web/src/home/universe/layout.ts';
+import { constellationAt, layoutUniverse, R, Slots, starSize } from '../web/src/home/universe/layout.ts';
 import { syntheticGraph } from './fixture-server.ts';
 
 const names = ['alpha-service', 'beta-tools', 'gamma', 'delta-backend', 'epsilon', 'zeta-bot', 'eta', 'theta'];
@@ -32,7 +32,7 @@ test('a note without links moves nothing; a linked note only nudges its neighbou
   const graph = syntheticGraph(173, names);
   const pos = (l: ReturnType<typeof layoutUniverse>) => new Map(l.stars.map((s) => [s.node.id, [s.x, s.y, s.z]]));
   const before = pos(layoutUniverse(graph));
-  const lone = { id: 'new-1', title: 'new', file: 'new.md', project: 'theta', connected: true, degree: 0, live: false, mtime: 0, summary: null, issues: [] };
+  const lone = { id: 'new-1', title: 'new', file: 'new.md', project: 'theta', connected: true, degree: 0, live: false, mtime: 0, summary: null, issues: [], type: null, tags: [], modified: null };
   const after = pos(layoutUniverse({ ...graph, nodes: [...graph.nodes, lone] }));
   assert.equal(after.size, before.size + 1);
   const moved = (a: Map<string, number[]>, list: Map<string, number[]>) => Math.max(...[...list].map(([id, p]) => Math.hypot(p[0] - a.get(id)![0], p[2] - a.get(id)![2])));
@@ -44,8 +44,8 @@ test('a note without links moves nothing; a linked note only nudges its neighbou
   assert.deepEqual(big.get(other.id), before.get(other.id));
 });
 
-test('a constellation is a figure: its bright lines form a tree that barely crosses itself', () => {
-  const nodes = Array.from({ length: 60 }, (_, i) => ({ id: `s${i}`, title: `s${i}`, file: `s${i}.md`, project: 'solo', connected: true, degree: 0, live: false, mtime: 0, summary: null, issues: [] }));
+test('a constellation is a figure: its bright lines form a tree that crosses itself far less than all links do', () => {
+  const nodes = Array.from({ length: 60 }, (_, i) => ({ id: `s${i}`, title: `s${i}`, file: `s${i}.md`, project: 'solo', connected: true, degree: 0, live: false, mtime: 0, summary: null, issues: [], type: null, tags: [], modified: null }));
   const edges: [string, string][] = [];
   for (let i = 1; i < 60; i++) edges.push([`s${i}`, `s${Math.floor(((i * 7919) % 97) / 97 * i)}`]);
   for (let i = 0; i < 25; i++) edges.push([`s${(i * 13) % 60}`, `s${(i * 37 + 11) % 60}`]); // links the tree does not need
@@ -67,28 +67,55 @@ test('a constellation is a figure: its bright lines form a tree that barely cros
   };
   const all = crossings(l.links);
   const figure = crossings(tree);
-  assert.ok(figure <= 3, `${figure} crossings in the figure`);
-  assert.ok(figure < all / 5, `${figure} of ${all}`);
+  // A force layout is not a planar drawing: some crossings stay, the bright figure has far fewer than all the links.
+  assert.ok(figure <= tree.length / 6, `${figure} crossings in the figure of ${all}`);
+  assert.ok(figure * 4 < all, `${figure} of ${all}`);
 });
 
-test('hubs are larger, kinds of star come from the note alone, and they differ', () => {
+test('hubs are larger, sizes vary within a degree, and both come from the note alone', () => {
   const graph = syntheticGraph(800, names);
   const a = layoutUniverse(graph);
   const b = layoutUniverse({ ...graph, nodes: graph.nodes.slice().reverse() });
-  assert.deepEqual(a.stars.map((s) => [s.node.id, s.style, s.k]).sort(), b.stars.map((s) => [s.node.id, s.style, s.k]).sort());
-  assert.ok(new Set(a.stars.map((s) => s.style)).size >= 4, 'a map of one kind of star');
-  assert.ok(starSize(9) > starSize(1) && starSize(1) > starSize(0));
-  assert.equal(starStyle('anything', 12), STAR_GIANT);
-  assert.ok(a.stars.filter((s) => s.style === STAR_PULSAR).length < a.stars.length * 0.1, 'pulsars are rare');
+  assert.deepEqual(a.stars.map((s) => [s.node.id, s.k]).sort(), b.stars.map((s) => [s.node.id, s.k]).sort());
+  assert.ok(starSize(9, 'x') > starSize(1, 'x') && starSize(1, 'x') > starSize(0, 'x'));
+  const lone = a.stars.filter((s) => s.node.degree === 0).map((s) => s.k);
+  assert.ok(Math.max(...lone) / Math.min(...lone) > 1.3, 'every note of a degree is the same size');
+  assert.ok(Math.max(...a.stars.map((s) => s.k)) < starSize(1000, 'x') * 1.6);
   const distances = a.constellations.filter((c) => !c.core).map((c) => Math.min(...a.constellations.filter((o) => o !== c).map((o) => Math.hypot(o.x - c.x, o.z - c.z))));
   assert.ok(Math.max(...distances) - Math.min(...distances) > 20, 'neighbours stand at different distances');
+});
+
+test('the force layout is deterministic: the same notes twice give the very same map', () => {
+  const graph = syntheticGraph(400, names);
+  const pos = (l: ReturnType<typeof layoutUniverse>) => l.stars.map((s) => [s.node.id, s.x, s.y, s.z]);
+  assert.deepEqual(pos(layoutUniverse(structuredClone(graph))), pos(layoutUniverse(graph)));
+});
+
+test('linked notes end closer together than unlinked ones', () => {
+  // Two tight groups and ten notes without links, all in one project.
+  const node = (id: string, degree: number) => ({ id, title: id, file: `${id}.md`, project: 'solo', connected: true, degree, live: false, mtime: 0, summary: null, issues: [], type: null, tags: [], modified: null });
+  const a = ['a0', 'a1', 'a2', 'a3', 'a4'];
+  const b = ['b0', 'b1', 'b2', 'b3', 'b4'];
+  const lone = Array.from({ length: 10 }, (_, i) => `z${i}`);
+  const edges: [string, string][] = [];
+  for (const g of [a, b]) for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) if ((i + j) % 2 || j === i + 1) edges.push([g[i], g[j]]);
+  const nodes = [...a, ...b].map((id) => node(id, edges.filter((e) => e.includes(id)).length)).concat(lone.map((id) => node(id, 0)));
+  const l = layoutUniverse({ nodes, edges, coreProject: null });
+  const at = new Map(l.stars.map((s) => [s.node.id, s]));
+  const dist = (x: string, y: string) => Math.hypot(at.get(x)!.x - at.get(y)!.x, at.get(x)!.z - at.get(y)!.z);
+  const mean = (pairs: [string, string][]) => pairs.reduce((sum, [x, y]) => sum + dist(x, y), 0) / pairs.length;
+  const linked = mean(edges);
+  const across = mean(a.flatMap((x) => b.map((y): [string, string] => [x, y])));
+  const loose = mean(lone.flatMap((x, i) => lone.slice(i + 1).map((y): [string, string] => [x, y])));
+  assert.ok(linked * 2 < across, `linked ${linked.toFixed(1)}, between groups ${across.toFixed(1)}`);
+  assert.ok(linked * 2 < loose, `linked ${linked.toFixed(1)}, between notes without links ${loose.toFixed(1)}`);
 });
 
 test('a brand new project during a session leaves every place where it was', () => {
   const graph = syntheticGraph(173, names);
   const slots = new Slots();
   const before = layoutUniverse(graph, slots);
-  const extra = { id: 'new-1', title: 'new', file: 'new.md', project: 'brand-new', connected: true, degree: 0, live: false, mtime: 0, summary: null, issues: [] };
+  const extra = { id: 'new-1', title: 'new', file: 'new.md', project: 'brand-new', connected: true, degree: 0, live: false, mtime: 0, summary: null, issues: [], type: null, tags: [], modified: null };
   const after = layoutUniverse({ ...graph, nodes: [...graph.nodes, extra] }, slots);
   for (const c of before.constellations) {
     const d = after.constellations.find((x) => x.key === c.key)!;
@@ -121,35 +148,33 @@ test('the core sits at the centre and holds this project and the global notes', 
   assert.ok(!l.constellations.some((c) => c.key === null));
 });
 
-test('the skeleton spans every cluster, stays apart from the links and changes no count', () => {
-  const graph = syntheticGraph(173, names);
-  const l = layoutUniverse(graph);
-  const pair = (a: number, b: number) => (a < b ? `${a}|${b}` : `${b}|${a}`);
-  const real = new Set(l.links.map((x) => pair(x.a, x.b)));
-  for (const [a, b] of l.skeleton) {
-    assert.ok(!real.has(pair(a, b)), 'a skeleton line duplicates a real link');
-    assert.equal(l.stars[a].c, l.stars[b].c, 'a skeleton line leaves its cluster');
-  }
-  assert.equal(l.links.length, graph.edges.length, 'only real links are links');
-  const degree = new Map(graph.nodes.map((n) => [n.id, n.degree]));
-  for (const s of l.stars) assert.equal(s.node.degree, degree.get(s.node.id));
+test('a link carries its strength: a pair on its own is strongest, a hub\'s leaf is weak', () => {
+  const node = (id: string, degree: number) => ({ id, title: id, file: `${id}.md`, project: 'solo', connected: true, degree, live: false, mtime: 0, summary: null, issues: [], type: null, tags: [], modified: null });
+  const leaves = Array.from({ length: 12 }, (_, i) => `l${i}`);
+  const edges: [string, string][] = [['p', 'q'], ...leaves.map((id): [string, string] => ['hub', id])];
+  const l = layoutUniverse({ nodes: [node('p', 1), node('q', 1), node('hub', 12), ...leaves.map((id) => node(id, 1))], edges, coreProject: null });
+  const w = (x: string) => l.links.find((k) => l.stars[k.a].node.id === x || l.stars[k.b].node.id === x)!.w;
+  assert.equal(w('p'), 1);
+  assert.ok(w('l0') < 0.2 && w('l0') > 0, `${w('l0')}`);
+  assert.equal(l.links.length, edges.length, 'only real links are links');
 });
 
-test('the central star has the middle to itself and each group of a cluster hangs on it', () => {
+test('the central star has the middle to itself and each linked group of a cluster hangs on it', () => {
   const graph = syntheticGraph(400, names);
   const l = layoutUniverse(graph);
   for (const [k, c] of l.constellations.entries()) {
     if (c.core) continue;
     const near = Math.min(...c.stars.map((i) => Math.hypot(l.stars[i].x - c.x, l.stars[i].z - c.z)));
     assert.ok(near >= c.r * 0.09, `${c.key}: a note ${near} from the central star of a cluster of ${c.r}`);
-    assert.ok(l.spokes.some(([owner]) => owner === k), `${c.key} has no spokes`);
+    const linked = l.links.some((x) => !x.cross && l.stars[x.a].c === k);
+    assert.equal(l.spokes.some(([owner]) => owner === k), linked, `${c.key}: spokes to its groups, none without one`);
   }
   for (const [k, star] of l.spokes) assert.equal(l.stars[star].c, k, 'a spoke leaves its cluster');
   assert.equal(l.links.length, graph.edges.length, 'spokes are not links');
 });
 
 test('a hub with a hundred leaves is an even disc, not a ring', () => {
-  const nodes = Array.from({ length: 101 }, (_, i) => ({ id: `s${i}`, title: `s${i}`, file: `s${i}.md`, project: 'solo', connected: true, degree: i ? 1 : 100, live: false, mtime: 0, summary: null, issues: [] }));
+  const nodes = Array.from({ length: 101 }, (_, i) => ({ id: `s${i}`, title: `s${i}`, file: `s${i}.md`, project: 'solo', connected: true, degree: i ? 1 : 100, live: false, mtime: 0, summary: null, issues: [], type: null, tags: [], modified: null }));
   const edges = nodes.slice(1).map((n): [string, string] => ['s0', n.id]);
   const l = layoutUniverse({ nodes, edges, coreProject: null });
   const c = l.constellations.find((x) => x.key === 'solo')!;

@@ -82,7 +82,7 @@ npm start
 
 The server prints a link like `http://127.0.0.1:47821/auth?token=...`. **Open it once**: the token sets a cookie, and from then on `http://127.0.0.1:47821` is enough. Set `CLAUDE_OS_PORT` for another port.
 
-On the first start the home screen offers a **short setup**: it checks the environment (Claude Code found and logged in, Node and git versions, limits), then Claude asks a few questions (your name, reply language, projects folder) and saves your profile. You can stop and continue later.
+On the first start the home screen offers a **short setup**: it checks the environment (Claude Code found and logged in, Node and git versions, limits), then Claude asks a few questions (your name, reply language, how often to ask) and saves your profile. You can stop and continue later.
 
 > [!TIP]
 > On Windows, install everything **inside WSL2** and build the optional desktop app with `node desktop/build.mjs`. More in [Getting started](docs/guide/getting-started.md): environment variables, updating, troubleshooting.
@@ -148,7 +148,7 @@ Counted from the **local journals** Claude Code already writes: by day, project,
 | --- | --- |
 | **Command palette** | <kbd>Ctrl</kbd>+<kbd>K</kbd> — tabs, projects, sections, actions and notes |
 | **Memory vault** | Claude Code's auto-memory in one Obsidian-compatible folder, with search, links and a health check |
-| **Kanban and planner** | Cards per project that Claude can take and move; quick notes that Claude can split into tasks |
+| **Kanban and planner** | Boards of cards that Claude can take, move and build on request; quick notes that Claude can split into tasks |
 | **Documents** | Reports and plans Claude writes, kept per project and searchable |
 | **Widgets and actions** | Home-screen panels fed by a shell command, per-project buttons (deploy, run tests); a command runs only after you approve its exact text |
 | **Claude OS plugins** | Skills, hooks, MCP servers and interface code in one package, off until you enable it. Shipped: a light code editor (IDE+), a project kit for your repositories, context search, and builder skills so Claude can extend Claude OS itself |

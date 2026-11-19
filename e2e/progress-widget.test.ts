@@ -26,7 +26,7 @@ afterEach(async () => {
 
 const task = (id: string, title: string, percent: number, state: TaskState, step: string | null = null, order = 1): Tab => ({
   id, kind: 'work', project: 'alpha-service', cwd: '/home/test/alpha', sessionId: null, title, order, model: null, effort: null, worktree: false,
-  status: state === 'working' ? 'working' : state === 'waiting' ? 'waiting_permission' : 'idle', attention: state === 'waiting', queued: 0,
+  status: state === 'working' ? 'working' : state === 'waiting' ? 'waiting_permission' : 'idle', attention: state === 'waiting', queued: 0, subagents: 0,
   progress: { percent, step, state, at: 1 },
 });
 

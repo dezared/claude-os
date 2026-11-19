@@ -144,19 +144,11 @@ test('title bar: a plain browser reserves nothing', async () => {
   assert.equal(Math.round(box.x + box.width), 1600);
 });
 
-test('kanban: the hint is one line, every project select shows icon, name and colour', async () => {
+test('kanban: every project select shows icon, name and colour', async () => {
   const data = defaultFixture();
   data.projects[0].name = 'alpha-service-с-очень-длинным-именем-которое-не-влезает-ни-в-какой-выбор-проекта';
   fixtureIcons.icons = { 'beta-web': '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" fill="__INK__"/></svg>' };
-  const page = await open({ view: { kind: 'kanban' }, data, width: 1280 });
-  const hint = page.getByText(/^Перетаскивание мышью/);
-  await hint.waitFor();
-  const line = await hint.evaluate((el) => {
-    const s = getComputedStyle(el);
-    return { height: el.getBoundingClientRect().height, line: parseFloat(s.lineHeight) || 16, wrap: s.whiteSpace };
-  });
-  assert.equal(line.wrap, 'nowrap');
-  assert.ok(line.height <= line.line + 1, `one line: ${line.height}`);
+  const page = await open({ view: { kind: 'plugin', screen: 'kanban' }, data, width: 1280 });
 
   const board = page.getByRole('combobox', { name: 'Доска' });
   await board.click();

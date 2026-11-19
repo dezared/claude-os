@@ -1,6 +1,9 @@
 // Single contract between server and web. Types only: imported with `import type`.
 // Times are epoch ms. Token fields are raw counts. Nullable means "no data": the UI shows an honest empty state.
 
+import type { PluginServerStatus } from './osPluginServer.ts';
+import type { VoiceOptions } from './voice.ts';
+
 // ---------- Sessions and projects ----------
 
 export type SessionStatus = 'working' | 'idle' | 'waiting_permission' | 'blocked' | 'ended';
@@ -27,29 +30,16 @@ export interface Project {
 
 export type ProjectPatch = Partial<Pick<Project, 'name' | 'description' | 'color' | 'parent' | 'folder'>>;
 
-// GET /api/projects/structure: folders on disk as Claude OS sees them, two levels down.
-export interface ProjectStructureNode {
-  path: string;
-  name: string;
-  // project: a listed project's root; inside: folded into `project`; misc: a listed parent of projects;
-  // hidden: never a project (the root session's folder, service folders, temp); seen: known, not listed; none: nothing yet
-  kind: 'project' | 'inside' | 'misc' | 'hidden' | 'seen' | 'none';
-  project?: string;
-  reason?: 'git' | 'override' | 'connected'; // why it is or would be a project, or folds into one
-  folded?: string[]; // other working folders whose sessions count to this project
-  children?: ProjectStructureNode[];
-  truncated?: true; // on the root only: the 200-folder cap left some out
-}
-
 // What Claude asks the interface to do through the ui_action tool. A new action: one line here, one in UI_ACTION_SET, one case in web/src/lib/uiCommands.ts.
 export type UiCommand =
   | { action: 'notify'; kind: 'done' | 'question'; text: string | null }
   | { action: 'toast'; text: string }
-  | { action: 'open'; view: UiView; project: string | null };
-export type UiView = 'home' | 'projects' | 'sessions' | 'kanban' | 'analytics' | 'tools' | 'settings' | 'planner';
+  | { action: 'open'; view: UiView | PluginView; project: string | null };
+export type UiView = 'home' | 'projects' | 'sessions' | 'analytics' | 'tools' | 'settings' | 'planner';
+export type PluginView = string; // a screen an enabled plugin's server part names (`views`), opened with the project as its argument
 // Records, not arrays: a missing member is a type error. The ui_action tool lists its choices from them.
 export const UI_ACTION_SET: Record<UiCommand['action'], true> = { notify: true, toast: true, open: true };
-export const UI_VIEW_SET: Record<UiView, true> = { home: true, projects: true, sessions: true, kanban: true, analytics: true, tools: true, settings: true, planner: true };
+export const UI_VIEW_SET: Record<UiView, true> = { home: true, projects: true, sessions: true, analytics: true, tools: true, settings: true, planner: true };
 
 // The default of a switch over a union: a member without a case is a type error.
 export function assertNever(x: never): never {
@@ -184,6 +174,9 @@ export interface MemoryNode {
   mtime: number;
   summary: string | null; // frontmatter description or the first meaningful body line; never generated
   issues: string[]; // lint issue codes of a vault note; [] for old-place notes and MEMORY.md
+  type: string | null; // frontmatter metadata.type
+  tags: string[]; // frontmatter metadata.tags
+  modified: number | null; // frontmatter metadata.modified, ms; mtime is the file's own
 }
 
 // Snippet highlights are control chars, \u0001 opens and \u0002 closes: brackets in note text stay literal.
@@ -259,6 +252,7 @@ export interface ActionDef {
   command: string;
   cwd: string | null; // supports {project} and {cwd} placeholders
   confirm: boolean;
+  bar: boolean; // false: run only by a widget's view, never shown on the bar of a work tab
   builtin: boolean;
   approved: boolean; // sha256 of command is in data/approved-commands.json
 }
@@ -280,8 +274,6 @@ export const DENY_TEXTS = {
   denyTurnEnded: 'The turn ended',
   denyCancelled: 'The request was cancelled',
 } as const;
-
-export type BtwEvent = { text: string } | ({ done: true; error: string | null } & MessageKey);
 
 // The UI shows `errors.<key>` from its catalog with `params`; the English text next to it is the fallback and what logs and Claude get.
 export interface MessageKey { key?: string; params?: Record<string, string | number> }
@@ -383,7 +375,9 @@ export interface Tab {
   status: SessionStatus;
   attention: boolean; // waiting for permission or an answer
   queued: number;
+  subagents: number; // subagents of this tab's process at work now, whether its own turn runs or not
   permissionMode?: string | null; // the last mode Claude reported or the user chose; null: the CLI decides at start
+  remoteControl?: boolean; // /rc linked the running process to claude.ai/code or the phone; gone with the process
   progress?: TabProgress | null; // absent: this tab never reported, it is not on the home widget
 }
 
@@ -472,6 +466,9 @@ export interface TaskInfo {
   toolUses: number | null;
   lastTool: string | null;
 }
+
+// A subagent rather than a background command: what a tab counts as its subagents at work.
+export const isSubagent = (task: TaskInfo) => task.type === 'local_agent' || task.agentType !== null;
 
 export interface SubagentTranscript {
   id: string;
@@ -591,6 +588,7 @@ export interface SettingsView {
   obsidian: { installed: boolean | null; exe: string | null; dismissed: boolean; vaultWindows: string }; // the vault as the app would open it
   projects: Record<string, ProjectSettings>;
   universe: UniverseOptions;
+  voice: VoiceOptions;
   home: HomeLayout;
   profile: Profile | null; // null: setup has not asked yet
   setup: SetupState;
@@ -598,11 +596,10 @@ export interface SettingsView {
 
 export type QuestionLevel = 'minimal' | 'balanced' | 'thorough';
 
-// config/settings.json, key "profile": who the user is, for the prompts and the new project folder.
+// config/settings.json, key "profile": who the user is, for the prompts.
 export interface Profile {
   name: string;
   language: string; // ISO 639 code: the reply language and the UI language
-  projectsDir: string; // absolute; create_project makes new projects here
   questionLevel: QuestionLevel;
 }
 
@@ -614,7 +611,7 @@ export interface SetupState {
 }
 
 // GET /api/setup/checks: deterministic, no prompt sent. The fix text for each id is in the web catalogs as setup.fix.<id>.
-export type SetupCheckId = 'claude-binary' | 'claude-version' | 'login' | 'plan' | 'limits' | 'node' | 'git' | 'projects-dir';
+export type SetupCheckId = 'claude-binary' | 'claude-version' | 'login' | 'plan' | 'limits' | 'node' | 'git';
 
 export interface SetupCheck {
   id: SetupCheckId;
@@ -952,10 +949,11 @@ export interface OsPluginContents {
   mcp: { name: string; summary: string; envKeys: string[] }[];
   ui: { entry: string; permissions: OsPluginPermission[] } | null;
   kit: string | null; // the folder of project kit templates; enabling it installs nothing globally
+  server: string | null; // code the Claude OS server runs itself: routes, claude-os tools, a prompt rule; shipped plugins only
 }
 
-export const OS_PLUGIN_COMPONENTS = ['skills', 'hooks', 'mcp', 'ui', 'kit'] as const;
-export const OS_PLUGIN_PERMISSIONS = ['files.write', 'files.reveal', 'files.media'] as const;
+export const OS_PLUGIN_COMPONENTS = ['skills', 'hooks', 'mcp', 'ui', 'kit', 'server'] as const;
+export const OS_PLUGIN_PERMISSIONS = ['files.write', 'files.reveal', 'files.media', 'data'] as const;
 export type OsPluginPermission = (typeof OS_PLUGIN_PERMISSIONS)[number];
 
 // What a plugin needs from outside its folder. The server only looks; Claude does the work, in a tab, after the user agrees.
@@ -1009,6 +1007,8 @@ export interface OsPluginRow {
   installedVersion: string | null;
   installedAt: number | null;
   changed: boolean; // the folder differs from what was enabled
+  autoEnableFailed: string | null; // a feature moved into this plugin and the update could not enable it: why
+  serverStatus: PluginServerStatus | null; // a process its server part keeps running; null: none, or the plugin is off
 }
 
 export interface OsPluginsReport {
@@ -1017,7 +1017,7 @@ export interface OsPluginsReport {
 }
 
 export interface OsPluginChange {
-  kind: 'skill' | 'hook' | 'mcp' | 'ui' | 'config' | 'kit';
+  kind: 'skill' | 'hook' | 'mcp' | 'ui' | 'config' | 'kit' | 'server';
   action: 'add' | 'remove' | 'keep' | 'gone'; // keep: changed since it was enabled, so it is not ours to delete
   name: string;
   where: string;
@@ -1080,24 +1080,6 @@ export interface PlannerJob {
   error?: string;
 }
 
-// ---------- Project files of a work tab ----------
-
-export interface FileEntry {
-  name: string;
-  path: string; // relative to the tab's cwd
-  dir: boolean;
-  size: number | null;
-}
-
-export interface ProjectFile {
-  path: string;
-  size: number;
-  kind: 'text' | 'binary';
-  text: string | null; // null: binary
-  truncated: boolean; // only the beginning of a large file
-  sha: string | null; // what a save has to name; null: this file cannot be edited in place
-}
-
 // ---------- Project setup panel ----------
 
 export interface SetupFile {
@@ -1144,16 +1126,6 @@ export type ClientMessage =
   | { t: 'subscribe'; tabId: string; lastSeq: number }
   | { t: 'unsubscribe'; tabId: string };
 
-export interface VoiceStatus {
-  state: 'off' | 'downloading' | 'ready';
-  model: string;
-  modelBytes: number; // download size of the model
-  diskBytes: number; // what is really in `dir` now
-  downloaded: number | null; // while downloading
-  dir: string;
-  error: string | null;
-}
-
 // ---------- Claude's agents ----------
 
 export interface AgentRow {
@@ -1190,46 +1162,11 @@ export interface AgentDetail {
   recent: { session: string; project: string | null; description: string | null; at: number | null; tokens: number }[];
 }
 
-// ---------- Kanban ----------
-
-export const KANBAN_COLUMNS = ['backlog', 'todo', 'doing', 'polish', 'done'] as const; // in the order of the board
-export type KanbanColumn = (typeof KANBAN_COLUMNS)[number];
-export type KanbanPriority = 'low' | 'normal' | 'high';
-export type KanbanLevel = 'user' | 'root'; // the levels of a session's osChanges: config/, or server, web, shared, e2e
-
-export interface KanbanCard {
-  id: string; // like OS-21: the project's prefix and a number, and the name of the card's file
-  path: string; // the card's .md file in the vault: can be edited directly and mentioned with @
-  agent?: string; // who took the task
-  agentTab?: string; // the tab it works in, when it is one
-  title: string;
-  description: string;
-  project: string | null; // Project.key; null: not about one project
-  priority: KanbanPriority;
-  column: KanbanColumn;
-  level?: KanbanLevel; // what the task changes in Claude OS: only on cards of that project
-  sprint?: string; // KanbanSprint.id; absent, or an id the board does not know: no sprint
-  sessions?: string[]; // sessions of the tabs that took it, oldest first, the last 20
-  created: number;
-  updated: number;
-}
-
-// A third dimension over the same five columns, kept in _board.json.
-export interface KanbanSprint {
-  id: string; // like S3
-  name: string;
-}
-
-export interface KanbanCardSessions {
-  live: Tab | null; // the tab working on the card now
-  ended: SessionInfo[]; // its last sessions that no tab holds, newest first, up to 3
-}
-
 export type { ServiceTask, ServiceTaskStatus } from './serviceTask.ts';
 
 export type Topic =
   | 'sessions' | 'projects' | 'tokens' | 'memory' | 'skills' | 'mcp'
-  | 'actions' | 'widgets' | 'tabs' | 'overview' | 'audit' | 'settings' | 'account' | 'osPlugins' | 'usage' | 'planner' | 'voice' | 'agents' | 'kanban' | 'service' | 'documents' | 'projectKit';
+  | 'actions' | 'widgets' | 'tabs' | 'overview' | 'audit' | 'settings' | 'account' | 'osPlugins' | 'usage' | 'planner' | 'voice' | 'agents' | 'service' | 'documents' | 'projectKit' | 'osPluginData' | 'memorySemantic';
 
 export type ServerMessage =
   | { t: 'chat'; tabId: string; event: ChatEvent }
@@ -1271,19 +1208,28 @@ export type ServerMessage =
 //   DELETE /api/tabs/:id                    -> { ok: true }  (root tab cannot be closed)
 //   GET    /api/tabs/:id/history            -> ChatEvent[]
 //   POST   /api/tabs/:id/send   SendRequest -> { ok: true }
+//   POST   /api/tabs/:id/secret SecretRequest (shared/secrets.ts) -> { name: string } | { names: string[] }  (stored under data/, the conversation gets markers)
 //   POST   /api/tabs/:id/interrupt          -> { ok: true }
 //   DELETE /api/tabs/:id/progress           -> { ok: true }  (off the home widget until it reports again)
 //   POST   /api/tabs/:id/respond/:requestId RespondRequest -> { ok: true }
 //   GET    /api/tabs/:id/files?q=           -> string[]  (@-mention completion)
+//   POST   /api/tabs/:id/btw    BtwRequest  -> BtwEvent lines (ndjson; a throwaway copy of the tab's conversation)
+//   POST   /api/btw             BtwRequest  -> BtwEvent lines (in the root folder, no conversation behind it)
 //   GET    /api/models                      -> { id: string; label: string }[]
 //
 // memory (server/memory)
-//   GET  /api/memory/graph                  -> MemoryGraph
+//   GET  /api/memory/graph                  -> MemoryMap (shared/memory.ts: a subset of at most MEMORY_MAP_CAP nodes, full counts)
+//   GET  /api/memory/overview               -> MemoryOverview (shared/memory.ts)
+//   GET  /api/memory/list?q=&project=&type=&tag=&health=&offset=&limit= -> MemoryNoteList (shared/memory.ts)
 //   GET  /api/memory/notes/:id              -> MemoryNote
 //   PUT  /api/memory/notes/:id  {markdown,version} -> MemoryNote (409 on conflict, read only: 403)
 //   GET  /api/memory/migrate/:project       -> MemoryMigrationPlan
 //   POST /api/memory/migrate/:project       -> { ok: true; copied: number; skipped: string[] }
-//   GET  /api/memory/search?q=&limit=&project= -> MemorySearchHit[]  (limit default 20, max 20)
+//   GET  /api/memory/search?q=&limit=&project= -> MemorySearchHit[]  (limit default 20, max 20; FTS fused with the search by meaning when it is ready)
+//   GET  /api/memory/semantic               -> SemanticStatus (shared/memorySemantic.ts)
+//   POST /api/memory/semantic/enable        -> SemanticStatus  (turns it on; downloads the model when it is missing)
+//   POST /api/memory/semantic/disable       -> SemanticStatus  (FTS alone; model and vectors stay)
+//   DELETE /api/memory/semantic/model       -> SemanticStatus  (removes the model and the vectors)
 //   POST /api/memory/wiki/:project/prepare  -> WikiRunView (409: a run in progress, or 4 projects rewriting)
 //   GET  /api/memory/wiki/:project          -> WikiRunView | null
 //   POST /api/memory/wiki/:project/verify   -> WikiRunView (verify the started batches again, from disk)
@@ -1319,6 +1265,7 @@ export type ServerMessage =
 //   GET  /api/settings                      -> SettingsView
 //   PUT  /api/settings/project/:key  ProjectSettings -> SettingsView
 //   PUT  /api/settings/universe  Partial<UniverseOptions> -> SettingsView
+//   PUT  /api/settings/voice  Partial<VoiceOptions> -> SettingsView
 //   PUT  /api/settings/home  HomeLayout     -> SettingsView
 //   PUT  /api/settings/profile  Partial<Profile> -> SettingsView
 //   GET  /api/setup                         -> { setup: SetupState; profile: Profile | null }
@@ -1371,11 +1318,17 @@ export type ServerMessage =
 //   POST /api/os-plugins/:id/enable|disable|update {confirmed: true, sha} -> OsPluginsReport
 //   GET  /api/os-plugins/ui                 -> OsPluginUi[]
 //   GET  /api/os-plugins/:id/:tree/ui/*     -> the plugin's interface code
+//   GET|PUT|DELETE /api/os-plugins/:id/data/<path> -> JSON in the plugin's own data folder; a folder answers { entries: [{ name, dir }] } (needs data)
+//   POST /api/os-plugins/:id/workspace     -> { path }  (~/<id>, made on the call: a cwd for the plugin's Claude tabs; needs data, shipped plugins only)
+//   *    /api/plugins/:id/*                 -> the routes of an enabled plugin's server part (server/tools/osPluginServers.ts)
 //   GET  /api/project-kit/status            -> KitStatusReport  (server/tools/projectKit.ts; types in shared/projectKit.ts)
+//   GET  /api/project-kit/kits              -> KitSetsReport  (server/tools/kitSets.ts; every plugin with a kit, projects, apply history)
 //   GET  /api/project-kit/plans/:id         -> KitPlan  (the stored plan with diffs, for the plan card)
 //   POST /api/project-kit/plans/:id/approve {requestId} -> { ok: true }  (only the open kit_apply card of the plan; kit_apply refuses without it)
 //   PUT  /api/tabs/:id/file {path, text, sha} -> ProjectFile (needs files.write)
 //   POST /api/tabs/:id/reveal {path}        -> {ok} (needs files.reveal)
+//   GET  /api/tabs/:id/media?path=          -> image, sound, video or PDF bytes, ranges honoured (needs files.media)
+//   GET  /api/tabs/:id/sheet?path=          -> ProjectSheet  (xlsx or ods, by content; needs files.media)
 //   POST /api/settings/obsidian/recheck     -> SettingsView
 //   POST /api/settings/obsidian/open {url}  -> { ok: true }
 //   GET  /api/recovery                      -> RecoveryItem[]
@@ -1397,7 +1350,8 @@ export type ServerMessage =
 //   DELETE /api/planner/:id
 //   POST   /api/planner/images { base64 }               -> { path }  (absolute: goes into the note's text as a line)
 //   GET    /api/planner/images/:name                    -> the image
-//   GET  /api/tabs/:id/tree?path=           -> FileEntry[]  (one level, inside the tab's cwd)
+//   GET  /api/tabs/:id/tree?root=&path=     -> FileEntry[]  (one level, inside `root` or the tab's cwd; paths relative to it)
+//   GET  /api/tabs/:id/tree/root?root=      -> FileRoot  (whether `root` may be listed, and how far up the panel may go)
 //   GET  /api/tabs/:id/file?path=           -> ProjectFile
 //   GET  /api/projects/:key/setup           -> ProjectSetup
 //   POST /api/projects/:key/setup/preview {scope,text} -> { diff }

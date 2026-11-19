@@ -13,14 +13,13 @@ let browser: Browser;
 let work: string;
 let fresh: TestServer;
 let accountFile: string;
-let projectsDir: string;
 const errors: string[] = [];
 
 const RESETS = Date.now() + 2 * 3_600_000;
 const LOGGED_OUT = { error: 'Not logged in' };
 const LOGGED_IN = { account: { subscriptionType: 'pro' }, usage: { rate_limits: { five_hour: { utilization: 95, resets_at: new Date(RESETS).toISOString() } } } };
 const login = (state: object) => writeFileSync(accountFile, JSON.stringify(state));
-const answers = () => ({ name: 'Ann Tester', language: 'en', projectsDir, questionLevel: 'balanced' });
+const answers = () => ({ name: 'Ann Tester', language: 'en', questionLevel: 'balanced' });
 
 const setupOf = async (srv: TestServer) => (await srv.api<{ setup: SetupState; profile: Profile | null }>('GET', '/api/setup')).body;
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Set up Claude OS' });
@@ -60,8 +59,6 @@ async function assertNoModal(page: Page): Promise<void> {
 before(async () => {
   work = mkdtempSync(join(tmpdir(), 'claude-os-setup-e2e-'));
   accountFile = join(work, 'account.json');
-  projectsDir = join(work, 'projects');
-  mkdirSync(projectsDir);
   login(LOGGED_OUT);
   fresh = await startServer({ FAKE_CLAUDE_ACCOUNT: accountFile, FAKE_CLAUDE_SETUP: JSON.stringify(answers()) }, { freshInstall: true });
   browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });

@@ -1,10 +1,11 @@
-import { Activity, Bot, CalendarClock, Coins, History as HistoryIcon, Layers, MessageSquarePlus, Package, Plug, Sparkles, SquareKanban, Webhook, Library } from 'lucide-react';
+import { Activity, Bot, CalendarClock, Coins, History as HistoryIcon, Layers, MessageSquarePlus, Package, Plug, Sparkles, Webhook, Library } from 'lucide-react';
 import { Skeleton } from '@/components/states';
 import { Button } from '@/components/ui';
 import { useApi } from '@/lib/api';
 import { fmtAgo, fmtInt, fmtTokens } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { useApp } from '@/lib/store';
+import { usePluginScreens } from '@/lib/uiPlugins';
 import { createTab, openSession } from '@/lib/tabs';
 import { KitStatusRow } from '@/work/KitStatusRow';
 import type { AgentsReport, EntityStats, HooksReport, McpReport, PluginsReport, Project, SessionInfo, SkillsReport } from '@/lib/types';
@@ -56,7 +57,7 @@ function TaggedSessions({ p }: { p: Project }) {
     <Section title={t('ent.osSessions')} icon={Layers}>
       <div className="border-t border-line2">
         {tagged.map((s) => (
-          <button key={s.id} type="button" onClick={() => void openSession(s)} className="press flex w-full items-center gap-2 border-b border-line2 py-1.5 text-left text-xs hover:bg-white/[.04]">
+          <button key={s.id} type="button" onClick={() => void openSession(s)} className="press flex w-full items-center gap-2 border-b border-line2 py-1.5 text-left text-xs hover:bg-fg/[.04]">
             <span className="min-w-0 flex-1 truncate text-soft">{s.title ?? s.name ?? s.lastPrompt ?? s.id}</span>
             <SessionTags s={s} />
             <span className="w-20 flex-none text-right text-dim">{fmtAgo(s.lastActivity)}</span>
@@ -103,6 +104,7 @@ export default function ProjectPage(props: EntityPageProps) {
   const projects = useApi<Project[]>('/api/projects', ['projects']);
   const p = projects.data?.find((x) => x.key === props.id);
   const go = useApp((s) => s.go);
+  const screens = usePluginScreens().filter((s) => s.perProject);
   const context = p ? `Folder: ${p.root}\n${p.sessionCount} sessions, ${p.liveCount} live.` : undefined;
   return (
     <EntityShell
@@ -111,7 +113,7 @@ export default function ProjectPage(props: EntityPageProps) {
       menu={p ? [{ id: 'project.skill', label: t('ent.writeSkill'), icon: Sparkles, onSelect: () => writeSkill({ key: p.key, name: p.name, root: p.root }) }] : undefined}
       actions={p && (
         <div className="flex flex-none gap-2">
-          <Button onClick={() => go({ kind: 'kanban', board: p.key })}><SquareKanban size={12} />{t('nav.kanban')}</Button>
+          {screens.map((s) => <Button key={s.id} onClick={() => go({ kind: 'plugin', screen: s.id, arg: p.key })}><s.icon size={12} />{s.title}</Button>)}
           <Button onClick={() => go({ kind: 'documents', project: p.key })}><Library size={12} />{t('documents.title')}</Button>
           <Button onClick={() => go({ kind: 'sessions', project: p.key })}><HistoryIcon size={12} />{t('ent.sessions')}</Button>
           <Button onClick={() => void createTab({ project: p.key })}><MessageSquarePlus size={12} />{t('ent.newTab')}</Button>

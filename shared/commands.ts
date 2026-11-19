@@ -52,3 +52,6 @@ export const OFF_CHAT: Record<string, OffChatCommand> = {
 
 /** Answered by Claude OS itself, on the side, see server/chat/btw.ts. Not an off-chat command any more. */
 export const BTW_COMMAND = 'btw';
+
+/** Keeps a value out of the chat, see shared/secrets.ts: the field masks it, the server stores it, Claude gets its name. */
+export const SECRET_COMMAND = 'secret';

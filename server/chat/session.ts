@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { query, type CanUseTool, type Options, type PermissionMode, type PermissionResult, type Query, type SDKMessage, type Settings, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { DENY_TEXTS, type ChatEvent, type MessageKey, type OsSource, type RespondRequest, type SendRequest, type SessionStatus, type Tab, type TabProgress, type TaskInfo, type TaskState, type TerminalRun } from '../../shared/contract.ts';
+import { DENY_TEXTS, type ChatEvent, type MessageKey, type OsSource, type RespondRequest, type SendRequest, type SessionStatus, type Tab, type TabProgress, isSubagent, type TaskInfo, type TaskState, type TerminalRun } from '../../shared/contract.ts';
 import type { Ctx } from '../context.ts';
 import { withDevIsolation } from './devIsolation.ts';
 import { HttpError } from './httpError.ts';
@@ -11,13 +11,13 @@ import { promptKindOf, sessionProfileBlock } from './profile.ts';
 import { questionDenial } from './questionCap.ts';
 import { buildMessage, withText, type OutgoingMessage } from './files.ts';
 import { Inbox } from './inbox.ts';
+import { sessionDataOptions } from './secrets.ts';
 import { PATH_RULE, PROGRESS_RULE, UI_TOOL_RULE } from './rootMcp.ts';
-import { kanbanDir, recordCardSession } from '../tools/kanban.ts';
 import { DOCUMENT_RULE, documentBrief } from '../tools/documents.ts';
 import { plannerDir } from '../tools/planner.ts';
 import { noteGuardHooks } from '../memory/guard.ts';
 import { runInPty } from './terminal.ts';
-import { assistantBlocks, BACKGROUND_COMMANDS, CLEAR_COMMANDS, REMOTE_CONTROL_COMMANDS, slashCommands, tokenCounts, toolResultText } from './translate.ts';
+import { assistantBlocks, BACKGROUND_COMMANDS, CLEAR_COMMANDS, REMOTE_CONTROL_COMMANDS, slashCommands, type RemoteControlQuery, tokenCounts, toolResultText } from './translate.ts';
 
 const BUFFER_SIZE = 5000;
 const INTERRUPT_GRACE_MS = 10_000;
@@ -26,9 +26,6 @@ const TASK_ENDED: Record<string, TaskInfo['status']> = { completed: 'completed',
 
 // Folded into the running turn at its next tool boundary; 'now' would abort whatever tool is running.
 const INTO_RUNNING_TURN = 'next' as const;
-
-// In the SDK's runtime since it spoke the CLI's remote_control request, missing from its published types.
-type RemoteControlQuery = Query & { enableRemoteControl(enabled: boolean, name?: string): Promise<{ session_url?: string; connect_url?: string }> };
 
 export interface TabRow {
   id: string;
@@ -90,7 +87,10 @@ interface Pending {
 }
 
 // What a tab adds to the system prompt, in this order; promptBudget.test.ts holds a work tab's to 2 KB.
-export const sessionAppend = (parts: { profile: string; note: string | null; noteRules: string; document: string | null }): string => [parts.profile, parts.note, parts.noteRules, UI_TOOL_RULE, PATH_RULE, PROGRESS_RULE, DOCUMENT_RULE, parts.document].filter(Boolean).join('\n\n');
+// The prompt lines of enabled plugins for a work or root tab; the setup and service sessions get none.
+const pluginRules = (ctx: Ctx, kind: string) => (kind === 'work' || kind === 'root' ? ctx.pluginServers?.rules(kind) ?? [] : []);
+
+export const sessionAppend = (parts: { profile: string; note: string | null; noteRules: string; document: string | null; plugins: string[] }): string => [parts.profile, parts.note, parts.noteRules, UI_TOOL_RULE, PATH_RULE, PROGRESS_RULE, DOCUMENT_RULE, ...parts.plugins, parts.document].filter(Boolean).join('\n\n');
 
 export class TabSession {
   row: TabRow;
@@ -121,7 +121,7 @@ export class TabSession {
   private stderrTail = '';
   private clearing = false; // the CLI is answering a /clear: nothing it says belongs to the new conversation
   private remoteControl = false;
-  private stopBackground: (() => void) | null = null;
+  stopBackground: (() => void) | null = null; // a /command running in the tab's terminal; the root idle reset waits for it
 
   constructor(row: TabRow, host: SessionHost) {
     this.row = row;
@@ -139,7 +139,7 @@ export class TabSession {
 
   toTab(): Tab {
     const { id, kind, project, cwd, sessionId, title, order, model, effort, worktree, document } = this.row;
-    return { id, kind, ...(document ? { document } : {}), project, cwd, sessionId, title, order, model, effort, worktree, status: this.status(), attention: this.pending.size > 0, queued: this.queue.length, permissionMode: this.row.permissionMode, ...(this.progress ? { progress: this.progressView(this.progress) } : {}) };
+    return { id, kind, ...(document ? { document } : {}), project, cwd, sessionId, title, order, model, effort, worktree, status: this.status(), attention: this.pending.size > 0, queued: this.queue.length, subagents: [...this.tasks.values()].filter((x) => x.status === 'running' && isSubagent(x)).length, permissionMode: this.row.permissionMode, remoteControl: this.remoteControl, ...(this.progress ? { progress: this.progressView(this.progress) } : {}) };
   }
 
   private progressView(p: StoredProgress): TabProgress {
@@ -323,6 +323,7 @@ export class TabSession {
       }
       const answer = await (this.q as RemoteControlQuery).enableRemoteControl(on, this.row.title);
       this.remoteControl = on;
+      this.ctx.invalidate('tabs');
       const url = answer?.session_url ?? answer?.connect_url;
       if (!on) say('Remote Control is off.', 'rcOff');
       else if (url) say(`Remote Control is on: ${url}. While it is on, this session's process does not stop. To turn it off: /rc`, 'rcOnUrl', { url });
@@ -450,6 +451,10 @@ export class TabSession {
     this.noteMode(mode);
   }
 
+  warn(body: { text: string; key: string }): void {
+    this.emit({ e: 'warning', ...body });
+  }
+
   private noteMode(mode: string): void {
     if (mode === this.row.permissionMode) return;
     this.row.permissionMode = mode;
@@ -487,7 +492,6 @@ export class TabSession {
   // ---------- Turn lifecycle ----------
 
   private startTurn(message: OutgoingMessage, queueId?: string): void {
-    this.clearing = false;
     this.row.interruptedAt = null;
     this.reportedThisTurn = false;
     if (this.progress?.crashed) this.setProgress({ ...this.progress, crashed: false });
@@ -572,14 +576,13 @@ export class TabSession {
   private remoteControlEnded(): void {
     if (!this.remoteControl) return;
     this.remoteControl = false;
+    this.ctx.invalidate('tabs');
     this.emit({ e: 'warning', text: 'The session process stopped, Remote Control is off.', key: 'rcStopped' });
   }
 
   // The tasks die with their process and no notification comes for them.
   private endTasks(): void {
-    for (const task of this.tasks.values()) {
-      if (task.status === 'running') this.emit({ e: 'task', task: { ...task, status: 'stopped' } });
-    }
+    for (const task of this.tasks.values()) if (task.status === 'running') this.putTask({ ...task, status: 'stopped' });
     this.tasks.clear();
   }
 
@@ -596,29 +599,27 @@ export class TabSession {
   // ---------- The process ----------
 
   private spawn(): void {
+    this.clearing = false; // a new process never answers the old one's /clear; the same process answers it before any later turn
     const { row, ctx } = this;
     const resume = row.sessionId ?? undefined;
     const vaultDir = this.noteDir();
-    const append = sessionAppend({ profile: sessionProfileBlock(ctx, promptKindOf(ctx.paths, row)), note: !resume && row.project ? ctx.memory.stateNote(row.project) : null, noteRules: this.host.noteRules(), document: row.document ? documentBrief(row.document) : null });
+    const append = sessionAppend({ profile: sessionProfileBlock(ctx, promptKindOf(ctx.paths, row)), note: !resume && row.project ? ctx.memory.stateNote(row.project) : null, noteRules: this.host.noteRules(), document: row.document ? documentBrief(row.document) : null, plugins: pluginRules(ctx, promptKindOf(ctx.paths, row)) });
     const uploads = join(ctx.paths.data, 'uploads');
     mkdirSync(uploads, { recursive: true });
     // A note dragged into a chat is read by path, from any project, without a permission prompt. Writing stays denied below.
     const planner = plannerDir(ctx);
     mkdirSync(planner, { recursive: true });
-    // A task's card too: @OS-21 and the board's `path` are read from any project.
-    const kanban = kanbanDir(ctx);
-    mkdirSync(kanban, { recursive: true });
-    // `//` is the absolute-path anchor of permission rules; one slash would mean "relative to the settings source".
-    // Write(path) rules never match: Edit(path) covers every file-writing tool.
-    const denyData = `Edit(/${realpathSync(ctx.paths.data)}/**)`;
+    // And what enabled plugins keep there, such as a board's cards: @OS-21 and a card's `path` are read from any project.
+    const pluginDirs = ctx.pluginServers?.dirs() ?? [];
+    for (const dir of pluginDirs) mkdirSync(dir, { recursive: true });
 
     const options: Options = {
       pathToClaudeCodeExecutable: ctx.paths.claudeBin,
       cwd: row.cwd,
       settingSources: ['user', 'project', 'local'],
       systemPrompt: { type: 'preset', preset: 'claude_code', ...(append ? { append } : {}) },
-      disallowedTools: [denyData],
-      additionalDirectories: [uploads, planner, kanban],
+      ...sessionDataOptions(ctx, row), // data/ is never written by a session; the /secret values are $NAME in its Bash
+      additionalDirectories: [uploads, planner, ...pluginDirs],
       includePartialMessages: true,
       canUseTool: this.canUseTool,
       hooks: noteGuardHooks(ctx.memory, row.id),
@@ -848,6 +849,8 @@ export class TabSession {
   }
 
   private putTask(task: TaskInfo): void {
+    // The tab strip shows the count for background tabs too, and they hear only the tab list.
+    if (isSubagent(task) && this.tasks.get(task.id)?.status !== task.status) this.ctx.invalidate('tabs');
     this.tasks.set(task.id, task);
     this.emit({ e: 'task', task });
   }
@@ -859,7 +862,7 @@ export class TabSession {
     // A tab nobody opened for Claude OS itself holds the user's work: '' says so, whatever its folder.
     const source = this.row.source ?? (this.row.kind === 'root' ? 'root' : this.row.kind === 'service' ? 'service' : '');
     this.ctx.journal.markOsSession(id, source, this.row.sourceDetail ?? undefined);
-    recordCardSession(this.ctx, this.row.id, id);
+    this.ctx.pluginServers?.sessionStarted(this.row.id, id);
     this.ctx.invalidate('tabs', 'sessions');
   }
 

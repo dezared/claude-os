@@ -16,6 +16,7 @@
   "icon": "file-search",
   "version": "1.1.0",
   "author": "Claude OS",
+  "enabledByDefault": true,
   "dependencies": [
     {
       "id": "claude-md",

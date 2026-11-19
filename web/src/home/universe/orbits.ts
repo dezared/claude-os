@@ -40,23 +40,27 @@ export function pickOrbits(sessions: OrbitSession[], max: number): OrbitSession[
 }
 
 const WATCH_FRAMES = 90;
+const WATCH_WINDOW_MS = 1000; // a window also closes after a second, so a map at a few frames a second gives up in two, not in a minute
 const WATCH_SLOW_MS = 20; // under 50 frames a second: no display is that slow
 const WATCH_RATIO = 1.5;
 
 /** Whether frames that follow one another keep falling behind the best this display has shown. Two windows in a row, so a hitch does not count. */
 export class FrameWatch {
   private window: number[] = [];
+  private spent = 0;
   private best = Infinity;
   private strikes = 0;
 
   /** True once the GPU is behind. */
   add(ms: number): boolean {
     this.window.push(ms);
-    if (this.window.length < WATCH_FRAMES) return false;
+    this.spent += ms;
+    if (this.window.length < WATCH_FRAMES && this.spent < WATCH_WINDOW_MS) return false;
     const sorted = this.window.sort((a, b) => a - b);
-    const median = sorted[WATCH_FRAMES >> 1];
-    this.best = Math.min(this.best, sorted[WATCH_FRAMES >> 3]);
+    const median = sorted[sorted.length >> 1];
+    this.best = Math.min(this.best, sorted[sorted.length >> 3]);
     this.window = [];
+    this.spent = 0;
     this.strikes = median > WATCH_SLOW_MS || median > this.best * WATCH_RATIO ? this.strikes + 1 : 0;
     return this.strikes >= 2;
   }

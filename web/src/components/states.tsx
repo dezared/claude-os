@@ -6,7 +6,7 @@ import { t } from '@/lib/i18n';
 
 export function Empty({ children, className, icon: Icon }: { children: ReactNode; className?: string; icon?: LucideIcon }) {
   return (
-    <div className={cn('flex items-start gap-2 rounded-lg bg-white/[.035] px-3 py-2.5 text-xs text-muted', className)}>
+    <div className={cn('flex items-start gap-2 rounded-lg bg-fg/[.035] px-3 py-2.5 text-xs text-muted', className)}>
       {Icon && <Icon size={14} className="mt-px flex-none text-dim" />}
       <div className="min-w-0">{children}</div>
     </div>
@@ -29,7 +29,7 @@ export function Spinner({ size = 14, className }: { size?: number; className?: s
 
 export function ErrorState({ message, onRetry, className }: { message: string; onRetry?: () => void; className?: string }) {
   return (
-    <div role="alert" className={cn('flex items-start gap-2 rounded-lg border border-line bg-white/[.03] p-3 text-xs text-soft', className)}>
+    <div role="alert" className={cn('flex items-start gap-2 rounded-lg border border-line bg-fg/[.03] p-3 text-xs text-soft', className)}>
       <AlertTriangle size={14} className="mt-px flex-none text-accent" />
       <div className="min-w-0 flex-1">
         <div className="overflow-wrap-anywhere">{message}</div>

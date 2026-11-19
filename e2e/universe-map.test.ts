@@ -281,10 +281,16 @@ test('a library icon on the map is painted in the colour its row in the list has
   const page = await open(defaultFixture());
   const onMap = page.locator('.u-label[data-project="beta-web"] i.u-icon img');
   await onMap.waitFor({ state: 'attached' });
-  const inList = page.locator('aside').locator('button', { hasText: 'beta-web' }).locator('img').first();
+  // The list paints a library icon as a mask over the tile's ink, so its colour is the glyph's background.
+  const inList = page.locator('aside').locator('button', { hasText: 'beta-web' }).locator('.icon-glyph').first();
   await inList.waitFor();
-  assert.equal(await onMap.getAttribute('src'), await inList.getAttribute('src'));
-  assert.ok(!decodeURIComponent((await onMap.getAttribute('src'))!).includes(LIBRARY_ICON_INK), 'still in the ink of the server');
+  const svg = decodeURIComponent((await onMap.getAttribute('src'))!);
+  assert.ok(!svg.includes(LIBRARY_ICON_INK), 'still in the ink of the server');
+  const rgb = (css: string) => css.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+  const mapInk = rgb(/stroke="([^"]+)"/.exec(svg)![1]);
+  assert.ok(mapInk, 'the map icon carries a colour');
+  await page.waitForFunction(([el, want]) => getComputedStyle(el!).backgroundColor.match(/[\d.]+/g)?.slice(0, 3).join() === want, [await inList.elementHandle(), mapInk!.join()] as const);
+  assert.ok((await inList.getAttribute('style'))!.includes(encodeURIComponent('<path d="M4 4h16"/>')), 'the same drawing');
 });
 
 test('a central star answers like its project\'s name, even when the name is not shown', async () => {
@@ -386,6 +392,30 @@ test('a modal over the map stops the satellites, closing it brings them back; of
   await page.waitForFunction((n) => (window as unknown as { __blits: number }).__blits > n + 2, covered, { timeout: 60000 });
 });
 
+test('a star\'s card reads the note\'s frontmatter: type, tags as chips, its linked notes and the date, no internal keys', async () => {
+  const data = defaultFixture();
+  for (const n of data.graph.nodes) if (n.project === 'alpha-service') Object.assign(n, { type: 'feedback', tags: ['theme', 'ui-kit'], summary: `About ${n.title}` });
+  const page = await open(data);
+  await page.locator('aside').getByText('alpha-service', { exact: true }).first().click({ button: 'right' });
+  await menu(page).getByRole('menuitem', { name: 'Показать на карте' }).click();
+  const label = page.locator('.u-label-note.on', { hasText: 'note_alpha-service' }).first();
+  await label.waitFor();
+  await page.waitForTimeout(500);
+  const box = (await label.boundingBox())!;
+  await page.mouse.move(box.x - 8, box.y + box.height / 2);
+  const tip = page.getByRole('tooltip');
+  await tip.waitFor();
+  const noteId = await label.getAttribute('data-note');
+  const node = data.graph.nodes.find((n) => n.id === noteId)!;
+  assert.match((await tip.textContent())!, new RegExp(node.title), 'the title');
+  assert.equal(await tip.locator('[data-tip-type]').textContent(), 'отзыв', 'the type, in the interface language');
+  assert.deepEqual(await tip.locator('[data-tip-tag]').allTextContents(), ['#theme', '#ui-kit'], 'tags as chips');
+  assert.match((await tip.textContent())!, /изменена: /, 'the date');
+  if (node.degree > 0) assert.match((await tip.textContent())!, /Связана с:/, 'its linked notes');
+  assert.doesNotMatch((await tip.textContent())!, /originSessionId/);
+  await page.screenshot({ path: process.env.UNIVERSE_SHOT ?? '/tmp/b3-space-tip.png' });
+});
+
 test('a star\'s card stays on its star while the camera moves, with its thread, and the loop stops when it has settled', async () => {
   const data = defaultFixture();
   const page = await open(data);
@@ -426,6 +456,50 @@ test('a star\'s card stays on its star while the camera moves, with its thread, 
   await page.waitForTimeout(1500);
   // A running loop draws dozens of frames here. One is a data refresh landing in the window, not a loop.
   assert.ok((await blits(page)) - settled <= 1, 'a settled card keeps the loop running');
+});
+
+test('a card opens in its place: no frame in the corner of the window, hopping between stars or between projects', async () => {
+  const page = await open(defaultFixture(), false);
+  await page.locator('aside').getByText('alpha-service', { exact: true }).first().click({ button: 'right' });
+  await menu(page).getByRole('menuitem', { name: 'Показать на карте' }).click();
+  const notes = page.locator('.u-label-note.on', { hasText: 'note_alpha-service' });
+  await notes.nth(1).waitFor();
+  await page.waitForTimeout(500);
+  // Sampled when a card enters the page and on every frame after: what the browser would paint.
+  await page.evaluate(() => {
+    const w = window as unknown as { __corner: string[] };
+    w.__corner = [];
+    const look = () => {
+      for (const el of document.querySelectorAll<HTMLElement>('.u-tip, [data-project-popover]')) {
+        const r = el.getBoundingClientRect();
+        if (r.left < 2 && r.top < 2 && getComputedStyle(el).visibility !== 'hidden') w.__corner.push(`${el.className.split(' ')[0]} ${r.left},${r.top}`);
+      }
+    };
+    new MutationObserver(look).observe(document.body, { childList: true, subtree: true });
+    const frame = () => {
+      look();
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  const corner = () => page.evaluate(() => (window as unknown as { __corner: string[] }).__corner);
+  const tip = page.getByRole('tooltip');
+  for (const i of [0, 1, 0]) {
+    const box = (await notes.nth(i).boundingBox())!;
+    await page.mouse.move(box.x - 8, box.y + box.height / 2, { steps: 3 });
+    await tip.waitFor();
+    await page.waitForTimeout(150);
+  }
+  await page.mouse.move(120, 960);
+  await tip.waitFor({ state: 'detached' });
+  const badges = page.locator('.u-label.on[data-project]');
+  const pop = page.locator('[data-project-popover]');
+  for (const i of [0, 1, 0]) {
+    await badges.nth(i).hover();
+    await pop.waitFor();
+    await page.waitForTimeout(150);
+  }
+  assert.deepEqual(await corner(), [], 'a card stood in the top left corner');
 });
 
 test('a project card travels with its constellation and keeps its place while the pointer is inside', async () => {
@@ -476,7 +550,7 @@ test('the right button: only the core has a menu, whichever way the events come;
   await menu(page).getByRole('menuitem', { name: 'Изменить с Claude' }).waitFor();
   assert.deepEqual(await menu(page).getByRole('menuitem').allTextContents(), [
     'Создать виджет', 'Создать из .md', 'Связи между проектами', 'Вложенность проектов', 'Настроить через Claude', 'Изменить с Claude', 'Вопрос Claude',
-    'Проекты', 'Аналитика', 'Канбан', 'Документы', 'Инструменты', 'Плагины Claude OS', 'Настройки', 'Агенты', 'Планер',
+    'Проекты', 'Аналитика', 'Документы', 'Инструменты', 'Плагины Claude OS', 'Наборы проектов', 'Настройки', 'Планер', 'Kanban+',
   ]);
   await page.keyboard.press('Escape');
   await menu(page).waitFor({ state: 'detached' });

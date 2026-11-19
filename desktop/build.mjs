@@ -18,7 +18,7 @@ rmSync(join(out, 'resources/default_app.asar'), { force: true });
 
 const app = join(out, 'resources/app');
 mkdirSync(app, { recursive: true });
-for (const file of ['main.cjs', 'preload.cjs', 'apps.cjs']) copyFileSync(join(here, file), join(app, file));
+for (const file of ['main.cjs', 'preload.cjs', 'apps.cjs', 'bootScreen.cjs']) copyFileSync(join(here, file), join(app, file));
 copyFileSync(join(here, 'icon.ico'), join(app, 'icon.ico'));
 writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'claude-os', productName: 'Claude OS', version: '0.1.0', main: 'main.cjs' }));
 writeFileSync(join(app, 'install.json'), JSON.stringify({

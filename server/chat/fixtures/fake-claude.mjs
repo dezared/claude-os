@@ -80,7 +80,7 @@ if (!argv.includes('stream-json')) { // `claude agents --json`, `claude --versio
   process.exit(0);
 }
 
-log({ kind: 'spawn', pid: process.pid, argv, cwd: process.cwd() });
+log({ kind: 'spawn', pid: process.pid, argv, cwd: process.cwd(), e2eEnv: Object.keys(process.env).filter((k) => k.startsWith('E2E_')) });
 
 function flag(name) {
   for (let i = 0; i < argv.length; i++) {
@@ -210,7 +210,8 @@ function foldQueued() {
 }
 
 // The wait is a number of ms, or the path of a file the test creates to let the command finish.
-async function bashTurn(wait, command) {
+// `hold`: a file the test creates to let the turn end after the result, so it can look at the tab while the turn still runs.
+async function bashTurn(wait, command, hold = null) {
   const toolUseId = `toolu_${randomUUID()}`;
   assistant([{ type: 'tool_use', id: toolUseId, name: 'Bash', input: { command, description: 'fake command' } }]);
   if (/^\d+$/.test(wait)) await sleep(Number(wait));
@@ -219,6 +220,7 @@ async function bashTurn(wait, command) {
   write({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, ...base() });
   transcript({ type: 'user', message: { role: 'user', content } });
   await sleep(150); // the host hears the result and may answer before Claude goes on
+  while (hold && !existsSync(hold)) await sleep(20);
   foldQueued();
   streamText('command done');
   result();
@@ -347,6 +349,8 @@ async function runTurn(text) {
       return result();
     case 'BASHRUN': // BASHRUN <ms or gate file> <command>
       return bashTurn(rest[0], rest.slice(1).join(' '));
+    case 'BASHHOLD': // BASHHOLD <ms or gate file> <hold file> <command>
+      return bashTurn(rest[0], rest.slice(2).join(' '), rest[1]);
     case 'AGENT': // AGENT <step ms>
       return agentTurn(Number(rest[0]));
     case 'MANY': // MANY <n>: a long conversation, one message after another

@@ -8,7 +8,7 @@ layout(location=2) in float aSize;
 layout(location=3) in float aMinPx;
 layout(location=4) in vec4 aColor;
 layout(location=5) in vec2 aState; // alpha factor, size factor
-layout(location=6) in vec2 aStyle; // what kind of star (see layout.ts), notes per square world unit of its constellation
+layout(location=6) in vec2 aStyle; // 0 a note, 5 a project's central star; notes per square world unit of its constellation
 uniform mat4 uVP;
 uniform vec2 uRes;
 uniform float uPx;
@@ -22,10 +22,8 @@ out vec2 vUv;
 out vec4 vColor;
 out float vHalf;
 flat out int vStyle;
-flat out float vSeed;
 void main() {
   vStyle = int(aStyle.x + 0.5);
-  vSeed = fract(dot(aPos, vec3(0.1031, 0.1173, 0.0879))) * 6.2832; // the axis of a double star or a pulsar's beams
   vec4 clip = uVP * vec4(aPos, 1.0);
   float pxPerWorld = uPx / max(clip.w, 0.001);
   float rest = max(max(aMinPx * uFloor, uFloorMin) * uScale, aSize * pxPerWorld);
@@ -51,7 +49,6 @@ in vec2 vUv;
 in vec4 vColor;
 in float vHalf;
 flat in int vStyle;
-flat in float vSeed;
 uniform int uShape;
 out vec4 frag;
 const float STAR_CROP_PX = 6.0;
@@ -64,11 +61,10 @@ void main() {
     // Nebula: wide Gaussian that reaches zero at the quad edge.
     a = exp(-r * r * 4.0) * (1.0 - r * r);
   } else if (uShape == 2) {
-    // Note star: hard white core, tight halo, wide glow. Each kind is one branch here, not a draw call of its own.
+    // A note: a round glowing point, a soft core in a halo. The central star of a project is a branch here, not a draw call of its own.
     // A small star is the centre of a bigger one: the core stays a crisp point of the same few pixels, it is the glow that goes.
     vec2 uv = vUv * min(1.0, vHalf / STAR_CROP_PX);
     float r = length(uv);
-    vec2 axis = vec2(cos(vSeed), sin(vSeed));
     if (vStyle == 5) {
       // The central star of a project: its own colour, white only at the very heart, a wide corona, four long rays once it is big enough to carry them.
       float heart = smoothstep(0.1, 0.03, r);
@@ -81,35 +77,13 @@ void main() {
       // Squared: the palette is pastel, and a pastel at full light is nearly white.
       c = mix(mix(c, c * c, 0.6), vec3(1.0), heart * 0.9);
       a = min(body + corona + rays, 1.0) + heart * 0.2 + rays * 0.3;
-    } else if (vStyle == 3) {
-      // A double star: two cores, the smaller one colder.
-      float r1 = length(uv - axis * 0.2);
-      float r2 = length(uv + axis * 0.2);
-      float small = smoothstep(0.09, 0.03, r2);
-      c = mix(mix(c, vec3(1.0), smoothstep(0.13, 0.05, r1) * 0.42), vec3(0.72, 0.84, 1.0), small * 0.8);
-      a = smoothstep(0.13, 0.05, r1) + small * 0.9 + exp(-r1 * r1 * 60.0) * 0.4 + exp(-r2 * r2 * 80.0) * 0.28 + exp(-r * r * 10.0) * 0.08;
-    } else if (vStyle == 4) {
-      // A pulsar: a point of light and two thin opposite beams.
-      float along = abs(dot(uv, axis));
-      float across = abs(dot(uv, vec2(-axis.y, axis.x)));
-      float core = smoothstep(0.09, 0.03, r);
-      c = mix(mix(c, vec3(0.74, 0.9, 1.0), 0.55), vec3(1.0), core * 0.5);
-      a = core + exp(-r * r * 70.0) * 0.5 + exp(-across * 60.0) * pow(1.0 - along, 2.5) * 0.85;
     } else {
-      float wide = vStyle == 2 ? 1.0 : 0.0;
-      float tiny = vStyle == 1 ? 1.0 : 0.0;
-      float core = smoothstep(0.19 + wide * 0.07 - tiny * 0.08, 0.09 - tiny * 0.04, r);
-      float halo = exp(-r * r * (50.0 - wide * 30.0 + tiny * 25.0)) * 0.55 + exp(-r * r * (10.0 - wide * 5.0)) * (0.1 + wide * 0.08 - tiny * 0.08);
-      float spikes = 0.0;
-      float grow = clamp((vHalf - 17.0) / 9.0, 0.0, 1.0) * (1.0 - tiny);
-      if (grow > 0.0) {
-        vec2 p = abs(uv);
-        spikes = (exp(-p.y * 110.0) * pow(1.0 - p.x, 4.0) + exp(-p.x * 110.0) * pow(1.0 - p.y, 4.0)) * 0.5 * grow;
-      }
+      float core = smoothstep(0.2, 0.06, r);
+      float halo = exp(-r * r * 34.0) * 0.5 + exp(-r * r * 9.0) * 0.12 * (1.0 - r);
       // A star of a few pixels is all core: whitening it would turn a far cluster white whatever its colour. The colour goes first, the white comes with size.
       float near_ = smoothstep(3.0, 9.0, vHalf);
-      c = mix(mix(c, c * c, 0.5), vec3(1.0), core * 0.3 * near_);
-      a = min(core + halo + spikes, 1.0 + near_ * 0.3);
+      c = mix(mix(c, c * c, 0.5), vec3(1.0), core * 0.25 * near_);
+      a = min(core + halo, 1.0 + near_ * 0.2);
     }
   } else {
     // Ring around a hovered or selected star.
@@ -147,9 +121,10 @@ layout(location=0) in vec2 aCorner;
 layout(location=1) in vec3 aA;
 layout(location=2) in vec3 aB;
 layout(location=3) in vec4 aColor;
+layout(location=4) in float aWidth; // of the base width, per line: a link's strength
 uniform mat4 uVP;
 uniform vec2 uRes;
-uniform float uWidth;
+uniform float uWidth; // the base width in px
 out vec4 vColor;
 out float vSide;
 out float vT;
@@ -160,12 +135,13 @@ void main() {
   vec2 sa = a.xy / max(a.w, 0.001) * uRes;
   vec2 sb = b.xy / max(b.w, 0.001) * uRes;
   vec2 dir = normalize(sb - sa + vec2(0.0001, 0.0));
+  float width = uWidth * aWidth;
   // The shorter a line on screen, the more of them per pixel: a figure far away is a few faint threads instead of a solid fan. A negative alpha asks to be left out of this.
-  float span = length(sb - sa) * 0.5 / uWidth;
+  float span = length(sb - sa) * 0.5 / width;
   float thin = aColor.a < 0.0 ? 1.0 : mix(0.2, 1.0, smoothstep(3.0, 34.0, span));
   vec2 n = vec2(-dir.y, dir.x);
   vec4 p = mix(a, b, t);
-  p.xy += n * aCorner.y * uWidth * 2.0 / uRes * p.w;
+  p.xy += n * aCorner.y * width * 2.0 / uRes * p.w;
   gl_Position = (a.w <= 0.0 || b.w <= 0.0) ? vec4(2.0, 2.0, 2.0, 1.0) : p;
   vColor = vec4(aColor.rgb, abs(aColor.a) * thin);
   vSide = aCorner.y;

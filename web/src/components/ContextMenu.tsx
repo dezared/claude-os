@@ -2,6 +2,7 @@ import { ClipboardPaste, Copy, MessageCircleQuestionMark, Pencil, Scissors } fro
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefCallback, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { MenuRow, type MenuItem } from '@/home/ActionMenu';
+import { fadeOutCopy } from '@/lib/flip';
 import { t } from '@/lib/i18n';
 import { askClaude, type AskSubject } from '@/lib/microtask';
 import { toastError } from '@/lib/store';
@@ -228,7 +229,7 @@ export function ContextMenuHost() {
     // A modal treats anything outside it as a click away: this press stays here. The capture listener above still sees it.
     const keep = (e: PointerEvent) => e.stopPropagation();
     el.addEventListener('pointerdown', keep);
-    return () => el.removeEventListener('pointerdown', keep);
+    return () => (el.removeEventListener('pointerdown', keep), fadeOutCopy(el, new DOMRect(parseFloat(el.style.left), parseFloat(el.style.top), w, h))); // closed or moved: it fades out where it stood
   }, [menu]);
 
   if (!menu) return null;

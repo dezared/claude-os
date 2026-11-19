@@ -16,7 +16,7 @@ import type { ProjectSetup, PromotePreview, PromoteRequest, SetupFile } from '@/
 import { skillMenu } from '@/screens/admin/menus';
 
 function Origin({ children }: { children: string }) {
-  return <span className="flex-none rounded bg-white/[.07] px-1.5 text-[10.5px] leading-[1.6] text-dim">{children}</span>;
+  return <span className="flex-none rounded bg-fg/[.07] px-1.5 text-[10.5px] leading-[1.6] text-dim">{children}</span>;
 }
 
 function EditSettings({ project, file, onClose, onSaved }: { project: string; file: SetupFile; onClose: () => void; onSaved: () => void }) {

@@ -563,7 +563,7 @@ describe('settings and project setup', () => {
 test('microtask templates are complete', async () => {
   const { listMicrotasks } = await import('./microtasks.ts');
   const list = listMicrotasks({ paths: { root: join(import.meta.dirname, '../../root') } } as never);
-  assert.deepEqual(list.map((m) => m.id).sort(), ['admin-claude-md', 'admin-hooks', 'admin-mcp', 'admin-plugins', 'admin-settings', 'admin-skills', 'admin-usage', 'admin-vault', 'crash-fix', 'git-fix', 'ide-search', 'obsidian-install', 'panel-change', 'planner-decompose', 'planner-file', 'project-check', 'project-icons', 'project-kit', 'quick-start', 'widget-change', 'widget-create']);
+  assert.deepEqual(list.map((m) => m.id).sort(), ['admin-claude-md', 'admin-hooks', 'admin-mcp', 'admin-plugins', 'admin-settings', 'admin-skills', 'admin-usage', 'admin-vault', 'crash-fix', 'git-fix', 'ide-search', 'kit-change', 'kit-create', 'memory-dedupe', 'memory-reorganize', 'obsidian-install', 'panel-change', 'planner-decompose', 'planner-file', 'project-check', 'project-icons', 'project-kit', 'quick-start', 'widget-change', 'widget-create']);
   assert.equal(list.find((m) => m.id === 'widget-create')?.input, 'description');
   assert.ok(list.every((m) => m.title && m.titleRu && m.prompt.length > 40));
   assert.match(list.find((m) => m.id === 'git-fix')!.prompt, /no force push/);

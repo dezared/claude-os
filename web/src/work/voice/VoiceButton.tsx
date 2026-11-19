@@ -1,5 +1,6 @@
 import { ListPlus, Loader2, Mic, MicOff, X } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import { desktop } from '@/components/desktop';
 import { Button, Dialog, IconButton } from '@/components/ui';
 import { api, setCached, useApi } from '@/lib/api';
 import { cn } from '@/lib/format';
@@ -10,7 +11,8 @@ import { insertAtCaret, insertItems, meterLevel, micProblem, pcmToBase64, splitI
 import { startRecorder, type Recorder } from './recorder';
 
 const MAX_SECONDS = 600;
-const problemKey: Record<MicProblem, Key> = { denied: 'voice.denied', nodevice: 'voice.noDevice', busy: 'voice.busy', other: 'voice.micFailed' };
+// The Windows advice fits the desktop window only; in a browser the permission belongs to the browser and the system.
+const problemKey: Record<MicProblem, Key> = { get denied(): Key { return desktop() ? 'voice.denied' : 'voice.deniedBrowser'; }, nodevice: 'voice.noDevice', busy: 'voice.busy', other: 'voice.micFailed' };
 
 export const fmtMb = (bytes: number) => `${Math.round(bytes / 1_000_000)} ${t('voice.mb')}`;
 

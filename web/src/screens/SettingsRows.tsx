@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { desktop, setDesktopPrefs, useDesktopPrefs, type CloseChoice } from '@/components/desktop';
-import { Checkbox, Select } from '@/components/ui';
+import { Button, Checkbox, Select } from '@/components/ui';
+import { askBrowserNotify, browserNotifyState } from '@/lib/browserNotify';
 import { t } from '@/lib/i18n';
 
 // The building blocks of the settings screen, apart so the screen itself stays under its size cap.
@@ -35,11 +36,24 @@ export function Rows({ children }: { children: ReactNode }) {
 
 export const onOff = (on: boolean) => t(on ? 'desktop.enabled' : 'desktop.disabled');
 
-// Only the window has a tray and notifications: in a browser there is nothing to set.
+// In a browser only notifications can be set, through the browser's own permission.
+function BrowserRows() {
+  const prefs = useDesktopPrefs();
+  const [state, setState] = useState(browserNotifyState);
+  if (state === 'unsupported') return null;
+  return (
+    <Row label={t('desktop.notifySetting')} hint={t(state === 'denied' ? 'desktop.browserNotifyDenied' : 'desktop.browserNotifyHint')}>
+      {state === 'granted' && <Checkbox checked={prefs.notifications} onChange={(v) => setDesktopPrefs({ notifications: v })}>{onOff(prefs.notifications)}</Checkbox>}
+      {state === 'default' && <Button onClick={() => void askBrowserNotify().then(setState)}>{t('desktop.browserNotifyAllow')}</Button>}
+    </Row>
+  );
+}
+
+// Only the window has a tray and fullscreen.
 export function DesktopRows() {
   const prefs = useDesktopPrefs();
   const bridge = desktop();
-  if (!bridge) return null;
+  if (!bridge) return <BrowserRows />;
   return (
     <>
       <Row label={t('desktop.closeSetting')} hint={t('desktop.closeSettingHint')}>

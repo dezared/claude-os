@@ -210,7 +210,7 @@ function Ides({ s, error, retry }: { s: Settings_ | undefined; error: string | n
     <>
       <Head
         title={t('set.ides')}
-        hint={t('settings.scanHint')}
+        hint={t(s?.platform === 'mac' ? 'settings.scanHintMac' : 'settings.scanHint')}
         aside={
           <>
             {s?.scannedAt && <span className="text-[11px] text-dim">{t('settings.scanned', { ago: fmtAgo(s.scannedAt) })}</span>}
@@ -234,7 +234,7 @@ function Ides({ s, error, retry }: { s: Settings_ | undefined; error: string | n
                 <div className="truncate text-soft">{e.name}</div>
                 <div className="selectable truncate font-mono text-[11px] text-dim" title={e.exe}>{e.exe}</div>
               </div>
-              <Tag>{e.side === 'windows' ? 'Windows' : 'Linux'}</Tag>
+              <Tag>{e.side === 'windows' ? 'Windows' : s.platform === 'mac' ? 'macOS' : 'Linux'}</Tag>
               <Tag>{e.source}</Tag>
               <span className="flex w-28 justify-end">
                 {e.approved ? <Check size={13} className="text-ok" aria-label={t('settings.approved')} /> : (

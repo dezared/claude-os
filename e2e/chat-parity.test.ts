@@ -7,6 +7,7 @@ import { after, before, test } from 'node:test';
 import { chromium, type Browser, type Page } from 'playwright';
 import type { Tab } from '../shared/contract.ts';
 import { startServer, waitUntil, type TestServer } from '../server/chat/fixtures/harness.ts';
+import { procStartOf } from '../server/journal/live.ts';
 
 const SHOTS = join(import.meta.dirname, '..', 'docs', 'screenshots');
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
@@ -44,8 +45,7 @@ function seedExternalSession() {
     line({ type: 'user', isSidechain: true, agentId: 'aexternal1', message: { role: 'user', content: 'найди причину' } }),
     line({ type: 'assistant', isSidechain: true, agentId: 'aexternal1', message: { id: 'm2', role: 'assistant', model: 'claude-x', content: [{ type: 'text', text: 'Причина найдена внутри' }], usage: { input_tokens: 10, output_tokens: 5 } } }),
   ].join('\n') + '\n');
-  const stat = readFileSync(`/proc/${process.pid}/stat`, 'latin1');
-  const procStart = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  const procStart = procStartOf(process.pid);
   mkdirSync(join(srv.configDir, 'sessions'), { recursive: true });
   writeFileSync(join(srv.configDir, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: EXTERNAL, cwd: external, status: 'busy', kind: 'interactive', procStart, startedAt: Date.now() - 1000, updatedAt: Date.now() }));
 }
@@ -233,7 +233,7 @@ test('25: Ctrl+V and drop put an image into the composer, removable, and it reac
   }, PNG);
   await copyPng();
   await box.focus();
-  await page.keyboard.press('Control+V');
+  await page.keyboard.press('ControlOrMeta+V');
   const thumb = page.locator('img[src^="data:image/png"]').first();
   await thumb.waitFor();
   await page.getByRole('button', { name: /^Убрать / }).click();
@@ -241,7 +241,7 @@ test('25: Ctrl+V and drop put an image into the composer, removable, and it reac
 
   // With the focus away from the field, as after clicking the transcript.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  await page.keyboard.press('Control+V');
+  await page.keyboard.press('ControlOrMeta+V');
   await thumb.waitFor();
   await page.getByRole('button', { name: /^Убрать / }).click();
 

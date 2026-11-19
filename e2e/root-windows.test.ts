@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { startServer, waitUntil, type TestServer } from '../server/chat/fixtures/harness.ts';
+import { procStartOf } from '../server/journal/live.ts';
 import { homeButton } from './fixture-server.ts';
 import type { Tab } from '../shared/contract.ts';
 
@@ -194,9 +195,8 @@ test('Ctrl+Shift+T: a session a terminal took in the meantime comes back read-on
   const terminal = spawn('sleep', ['60'], { stdio: 'ignore' });
   const entry = join(srv.configDir, 'sessions', `${terminal.pid}.json`);
   try {
-    const stat = readFileSync(`/proc/${terminal.pid}/stat`, 'latin1');
     mkdirSync(join(srv.configDir, 'sessions'), { recursive: true });
-    writeFileSync(entry, JSON.stringify({ pid: terminal.pid, procStart: stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19], sessionId: session, cwd: tab.cwd, status: 'idle', kind: 'interactive', startedAt: Date.now(), updatedAt: Date.now() }));
+    writeFileSync(entry, JSON.stringify({ pid: terminal.pid, procStart: procStartOf(terminal.pid!), sessionId: session, cwd: tab.cwd, status: 'idle', kind: 'interactive', startedAt: Date.now(), updatedAt: Date.now() }));
     await page.keyboard.press('Control+Shift+KeyT');
     await waitUntil(async () => (await tabsNow()).some((t) => t.sessionId === session && t.kind === 'readonly'), 'it opens read-only');
     await page.getByText('echo: потом его взял терминал').waitFor();

@@ -52,13 +52,13 @@ test('the map: a folder is no star, even when pinned', () => {
 test('short text pastes as it is, with the focus in the field or anywhere else on the screen', async () => {
   await copy('короткий текст');
   await box().click();
-  await page.keyboard.press('Control+V');
+  await page.keyboard.press('ControlOrMeta+V');
   await page.waitForFunction(() => (document.querySelector('textarea') as HTMLTextAreaElement | null)?.value !== '');
   assert.equal(await box().inputValue(), 'короткий текст');
 
   await box().fill('');
   await box().blur();
-  await page.keyboard.press('Control+V');
+  await page.keyboard.press('ControlOrMeta+V');
   await page.waitForFunction(() => document.activeElement?.tagName === 'TEXTAREA');
   assert.equal(await box().inputValue(), 'короткий текст', 'pasted with the focus nowhere in particular');
   await box().fill('');
@@ -68,7 +68,7 @@ test('a long paste folds into a mark; the whole text goes out; undo and a reload
   await copy(LONG);
   await box().click();
   await page.keyboard.type('вот лог: ');
-  await page.keyboard.press('Control+V');
+  await page.keyboard.press('ControlOrMeta+V');
   await page.waitForFunction(() => (document.querySelector('textarea') as HTMLTextAreaElement).value.includes('#1'));
   const value = await box().inputValue();
   assert.equal(value, 'вот лог: [Вставка #1 · строк: 60]');
@@ -76,7 +76,7 @@ test('a long paste folds into a mark; the whole text goes out; undo and a reload
   // The second paste has its own number; a single long line counts characters.
   const line = 'x'.repeat(900);
   await copy(line);
-  await page.keyboard.press('Control+V');
+  await page.keyboard.press('ControlOrMeta+V');
   await page.waitForFunction(() => (document.querySelector('textarea') as HTMLTextAreaElement).value.includes('#2'));
   assert.equal(await box().inputValue(), 'вот лог: [Вставка #1 · строк: 60][Вставка #2 · символов: 900]');
 
@@ -107,7 +107,7 @@ test('a long paste is a chip in the text: Backspace takes it whole, undo brings 
   await copy(LONG);
   await box().click();
   await page.keyboard.type('лог ');
-  await page.keyboard.press('Control+V');
+  await page.keyboard.press('ControlOrMeta+V');
   const chip = page.locator('[data-chip-layer] [data-chip="paste"]');
   await chip.waitFor();
   assert.equal(await chip.textContent(), '[Вставка #1 · строк: 60]');
@@ -130,7 +130,7 @@ test('a long paste is a chip in the text: Backspace takes it whole, undo brings 
   await page.keyboard.press('Backspace');
   assert.equal(await box().inputValue(), 'лог ', 'one key takes the whole chip');
   await chip.waitFor({ state: 'detached' });
-  await page.keyboard.press('Control+Z');
+  await page.keyboard.press('ControlOrMeta+Z');
   assert.equal(await box().inputValue(), 'лог [Вставка #1 · строк: 60]');
   await chip.waitFor();
 
@@ -139,7 +139,7 @@ test('a long paste is a chip in the text: Backspace takes it whole, undo brings 
   await page.getByRole('menuitem', { name: 'Развернуть в текст' }).click();
   await waitValue(`лог ${LONG}`);
   assert.equal(await chip.count(), 0);
-  await page.keyboard.press('Control+Z');
+  await page.keyboard.press('ControlOrMeta+Z');
   await waitValue('лог [Вставка #1 · строк: 60]');
 
   await page.route(/\/api\/tabs\/[^/]+\/send$/, (r) => r.fulfill({ status: 200, json: { ok: true } }));
@@ -154,7 +154,7 @@ test('a chip stays on its mark: a selection takes it whole, a scrolled field wit
   await copy(LONG);
   await box().click();
   await page.keyboard.type('лог ');
-  await page.keyboard.press('Control+V');
+  await page.keyboard.press('ControlOrMeta+V');
   const chip = page.locator('[data-chip-layer] [data-chip="paste"]');
   await chip.waitFor();
   const at = (await chip.boundingBox())!;
@@ -162,14 +162,14 @@ test('a chip stays on its mark: a selection takes it whole, a scrolled field wit
   await page.waitForFunction(() => { const f = document.querySelector('textarea')!; return f.selectionStart === 4 && f.selectionEnd === f.value.length; });
   await page.keyboard.type('x');
   await waitValue('лог x');
-  await page.keyboard.press('Control+Z');
+  await page.keyboard.press('ControlOrMeta+Z');
   await waitValue('лог [Вставка #1 · строк: 60]');
   await page.keyboard.press('End');
   await page.keyboard.press('Shift+ArrowLeft');
   await page.waitForFunction(() => document.querySelector('textarea')!.selectionStart === 4);
   await page.keyboard.press('Delete');
   await waitValue('лог ');
-  await page.keyboard.press('Control+Z');
+  await page.keyboard.press('ControlOrMeta+Z');
   await waitValue('лог [Вставка #1 · строк: 60]');
 
   // Taller than the field, ending with a line break, scrolled to the bottom: the chip is drawn where the mark is.

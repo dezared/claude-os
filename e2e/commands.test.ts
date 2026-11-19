@@ -49,7 +49,7 @@ test('Ctrl+Enter breaks the line through the field: what is deleted by hand stay
   assert.equal(await box.inputValue(), 'ab\ncd\n');
   await page.keyboard.press('Backspace');
   assert.equal(await box.inputValue(), 'ab\ncd');
-  await page.keyboard.press('Control+A');
+  await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.press('Backspace');
   // The next render compares its state with the field: a stale state puts the old text back.
   await page.locator('label:visible:has(input[type="file"]) input').setInputFiles({ name: 'a.txt', mimeType: 'text/plain', buffer: Buffer.from('x') });

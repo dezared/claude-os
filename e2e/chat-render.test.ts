@@ -7,6 +7,7 @@ import { deflateSync } from 'node:zlib';
 import { chromium, type Browser, type Page } from 'playwright';
 import type { ChatEvent, Tab } from '../shared/contract.ts';
 import { startServer, waitUntil, type TestServer } from '../server/chat/fixtures/harness.ts';
+import { procStartOf } from '../server/journal/live.ts';
 
 let srv: TestServer;
 let browser: Browser;
@@ -498,9 +499,8 @@ test('B5, B14: a session in a plain terminal: from the journal alone, live, gone
   const call = (id: string, command: string) => line({ type: 'assistant', isSidechain: true, agentId: 'aterm', message: { id, role: 'assistant', model: 'claude-x', content: [{ type: 'tool_use', id: `t${id}`, name: 'Bash', input: { command } }], stop_reason: null, usage: { input_tokens: 1, output_tokens: 1 } } });
   writeFileSync(journal, line({ type: 'user', isSidechain: true, agentId: 'aterm', message: { role: 'user', content: 'ищи' } }) + call('m1', 'rg первое'));
 
-  const stat = readFileSync(`/proc/${process.pid}/stat`, 'latin1');
   mkdirSync(join(srv.configDir, 'sessions'), { recursive: true });
-  writeFileSync(join(srv.configDir, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: SESSION, cwd, status: 'busy', kind: 'interactive', procStart: stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19], startedAt: Date.now(), updatedAt: Date.now() }));
+  writeFileSync(join(srv.configDir, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: SESSION, cwd, status: 'busy', kind: 'interactive', procStart: procStartOf(process.pid), startedAt: Date.now(), updatedAt: Date.now() }));
   await waitUntil(async () => (await srv.api<{ id: string; status: string }[]>('GET', '/api/sessions')).body.some((s) => s.id === SESSION && s.status !== 'ended'), 'the terminal session is indexed', 30_000);
 
   const tab = await srv.api<Tab>('POST', '/api/tabs', { resumeSessionId: SESSION, readonly: true, cwd });

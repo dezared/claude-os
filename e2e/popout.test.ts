@@ -442,6 +442,7 @@ async function startMain(userData: string) {
         send: (c: string, v: unknown) => void this.sent.push([c, v]),
         getURL: () => this.url,
         setWindowOpenHandler: (f: FakeWindow['openHandler']) => { this.openHandler = f; },
+        executeJavaScript: () => Promise.resolve(), // the boot screen's stage line
       });
       windows.push(this);
     }

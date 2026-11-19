@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { after, afterEach, before, test } from 'node:test';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { startServer } from '../server/chat/fixtures/harness.ts';
+import { procStartOf } from '../server/journal/live.ts';
 import { defaultFixture, startFixture, type FixtureServer } from './fixture-server.ts';
 
 let browser: Browser;
@@ -167,8 +168,7 @@ test('subagents now: a badge only above zero, for a terminal session too, leadin
     agent('a3', 'Уже закончил', 'end_turn');
 
     // A terminal: the CLI's registry with a pid that is alive, no tab of ours.
-    const stat = readFileSync(`/proc/${process.pid}/stat`, 'latin1');
-    const procStart = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+    const procStart = procStartOf(process.pid);
     mkdirSync(join(configDir, 'sessions'), { recursive: true });
     writeFileSync(join(configDir, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, procStart, sessionId: busy, cwd, status: 'busy', kind: 'interactive', updatedAt: Date.now() }));
 

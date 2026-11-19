@@ -167,7 +167,7 @@ test('editing: colours by language, a save keeps the line endings, a change on d
   assert.equal(await editor().inputValue(), 'x = 1\ny = 2\n');
 
   await editor().click();
-  await page.keyboard.press('Control+End');
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
   await page.keyboard.type('z = 3\n');
   await pane.getByRole('img', { name: 'Есть несохранённые правки' }).waitFor();
   assert.equal(readFileSync(join(cwd, 'crlf.py'), 'utf8'), 'x = 1\r\ny = 2\r\n', 'nothing is written before saving');
@@ -188,7 +188,7 @@ test('editing: colours by language, a save keeps the line endings, a change on d
 test('a draft survives closing the pane; the caret stays in view in a long file', async () => {
   await openFile('long.md');
   await editor().click();
-  await page.keyboard.press('Control+End');
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
   await page.keyboard.type('!');
   const scrollTop = await page.locator('.idep-scroll').evaluate((el) => el.scrollTop);
   assert.ok(scrollTop > 1000, `scrolled to the caret, got ${scrollTop}`);

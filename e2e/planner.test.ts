@@ -275,7 +275,7 @@ test('planner: a line that becomes an item keeps the caret', async () => {
   await openNote(note);
   const body = note.getByRole('textbox', { name: 'Текст заметки' });
   await body.click();
-  await body.press('Control+End');
+  await body.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
   await page.keyboard.press('Enter');
   await page.keyboard.type('- [ ] пункт');
   const item = note.locator('[data-planner-item="пункт"]').getByRole('textbox');
@@ -394,7 +394,7 @@ test('planner: a note is edited where it is and saves itself; filing while typin
   await openNote(note);
   assert.equal(await note.getByRole('button', { name: /Править|Сохранить/ }).count(), 0);
   await editor(note).click();
-  await editor(note).press('Control+End');
+  await editor(note).press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
   await page.keyboard.press('Enter');
   await page.keyboard.type('ещё строка');
   await until(() => fx!.calls.some((c) => c.method === 'PUT' && (c.body as { text: string }).text === 'Черновик заметки\nещё строка'));
@@ -767,7 +767,7 @@ test('project files: tree, code view, honest large and binary files, tagging, re
   await tree.locator('[data-file-row="my notes.md"]').dragTo(box);
   assert.equal(await box.inputValue(), '@"my notes.md" ');
   // Deleting a tag by hand really empties the input: the state follows the box.
-  await box.press('Control+a');
+  await box.press('ControlOrMeta+a');
   await box.press('Delete');
   assert.equal(await page.getByRole('button', { name: /Отправить/ }).first().isDisabled(), true);
 

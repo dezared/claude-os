@@ -1,4 +1,4 @@
-// /btw and the terminal dialog in the browser: the real server, the fake CLI, wt.exe a script. No tokens, nothing opens on Windows.
+// /btw and the terminal dialog in the browser: the real server, the fake CLI, wt.exe and osascript scripts. No tokens, no terminal opens.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,8 +15,11 @@ type Logged = { kind: string; pid: number; argv: string[] };
 
 const binDir = mkdtempSync(join(tmpdir(), 'claude-os-wt-'));
 const wtLog = join(binDir, 'wt.log');
-writeFileSync(join(binDir, 'wt.exe'), `#!/bin/bash\nprintf '%s\\n' "$*" >> "${wtLog}"\n`);
-chmodSync(join(binDir, 'wt.exe'), 0o755);
+// osascript is the same stand-in on macOS, where the terminal is Terminal.app.
+for (const name of ['wt.exe', 'osascript']) {
+  writeFileSync(join(binDir, name), `#!/bin/bash\nprintf '%s\\n' "$*" >> "${wtLog}"\n`);
+  chmodSync(join(binDir, name), 0o755);
+}
 
 let browser: Browser;
 let srv: TestServer;

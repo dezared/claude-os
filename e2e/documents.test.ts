@@ -2,7 +2,7 @@
 // the real MCP tools, in a real tab, and nothing reaches the live data.
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -75,7 +75,7 @@ const shot = async (name: string) => {
 };
 
 before(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'claude-os-documents-'));
+  dir = realpathSync(mkdtempSync(join(tmpdir(), 'claude-os-documents-'))); // the fake CLI logs its resolved cwd (on macOS the temp dir is a link)
   mkdirSync(join(dir, 'claude/projects'), { recursive: true });
   mkdirSync(join(dir, 'proj-alpha'), { recursive: true });
   mkdirSync(join(dir, 'proj-beta'), { recursive: true });
